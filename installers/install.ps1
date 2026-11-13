@@ -48,8 +48,8 @@ import json, os
 from mt5_hedge.paths import WORK
 f = WORK / 'hedge.json'
 cfg = json.loads(f.read_text(encoding='utf-8-sig')) if f.exists() else {}
-cfg['log_url'] = os.environ['MT5_HEDGE_LOG_URL']
-cfg['app_host'] = os.environ['MT5_HEDGE_APP_HOST']
+cfg['log_url'] = os.environ.get('MT5_HEDGE_LOG_URL', '')   # PowerShell 赋空串 = 删变量
+cfg['app_host'] = os.environ.get('MT5_HEDGE_APP_HOST', '127.0.0.1')
 f.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 print('hedge.json:', f, '| log_url:', cfg['log_url'] or '(空, 只记本地)', '| app_host:', cfg['app_host'])
 "@
