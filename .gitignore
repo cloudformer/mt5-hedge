@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/
+venv/
+.venv/
+# 运行时产物不进 repo(都在 %USERPROFILE%\mt5-hedge\)
+hedge.json
+hedge_*.csv
+outbox.jsonl
+logs/
+# terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+!terraform/example.tfvars
+terraform/**/.build/
+terraform/state/

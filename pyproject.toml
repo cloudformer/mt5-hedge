@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mt5-hedge"
+dynamic = ["version"]
+description = "One Windows, two MT5 terminals, one hedged pair: page, watchdog, logging. Zero config."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+  "MetaTrader5==5.0.*; sys_platform == 'win32'",
+  "fastapi==0.115.*",
+  "uvicorn[standard]==0.34.*",
+  "requests==2.32.*",
+]
+classifiers = [
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Homepage = "https://github.com/cloudformer/mt5-hedge"
+
+[project.scripts]
+mt5-hedge = "mt5_hedge.cli:main"
+
+[tool.setuptools]
+packages = ["mt5_hedge"]
+
+[tool.setuptools.package-data]
+mt5_hedge = ["terminal_start.ini"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mt5_hedge.__version__" }
