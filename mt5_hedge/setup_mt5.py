@@ -76,8 +76,8 @@ def _shortcuts():
         return
     items = [(f"MT5-{n}", str(p / "terminal64.exe"), f'/portable /config:"{PKG / "terminal_start.ini"}"', str(p))
              for n, p in TARGETS.items()]
-    exe = Path(sys.executable).with_name("mt5-hedge.exe")
-    items.append(("mt5-hedge", str(exe), "", str(WORK)))
+    # 不猜 Scripts 目录: 直接用装了本包的 python 起模块, 哪个 Python 装的就用哪个
+    items.append(("mt5-hedge", sys.executable, "-m mt5_hedge.cli", str(WORK)))
     ps = ["$W = New-Object -ComObject WScript.Shell"]
     for name, target, args, cwd in items:
         ps.append(f'$s = $W.CreateShortcut("{desktop / name}.lnk"); $s.TargetPath = "{target}"; '
