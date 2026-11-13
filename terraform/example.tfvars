@@ -13,3 +13,5 @@ console       = true
 force_destroy = false # the log history is the whole point: a destroy must not delete it
 
 log_retention_days = 30
+
+sign_key_prev = "" # fill with the OLD mt5_hedge/sign_key.txt only while rotating keys

@@ -3,10 +3,18 @@ locals {
   function_name = "${var.project_name}-log-lambda"
 }
 
+# The zip = this module's code + the table definition (its column list is the validation whitelist).
 data "archive_file" "code" {
   type        = "zip"
-  source_file = "${path.module}/log_ingest.py"
   output_path = "${path.module}/.build/log_ingest.zip"
+  source {
+    content  = file("${path.module}/log_ingest.py")
+    filename = "log_ingest.py"
+  }
+  source {
+    content  = var.schema_sql
+    filename = "hedge_log.sql"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "ingest" {
@@ -47,6 +55,8 @@ resource "aws_lambda_function" "ingest" {
       S3RDS_URL      = var.s3rds_query_url
       S3RDS_USER     = var.s3rds_user
       S3RDS_PASSWORD = var.s3rds_password
+      SIGN_KEY       = var.sign_key
+      SIGN_KEY_PREV  = var.sign_key_prev
     }
   }
 

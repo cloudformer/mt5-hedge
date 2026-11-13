@@ -82,3 +82,13 @@ variable "log_retention_days" {
   description = "CloudWatch retention for both Lambdas"
   type        = number
 }
+
+# ---- request signing (blue/green key rotation) ----
+# Current key = mt5_hedge/sign_key.txt (shipped inside the PyPI package, read by terraform directly).
+# Rotation: new sign_key.txt → publish package → put the OLD key here → apply → all machines upgraded → "" → apply.
+variable "sign_key_prev" {
+  description = "Previous signing key, accepted alongside the current one during a rotation; \"\" = none"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
