@@ -255,7 +255,9 @@ def state():
                 series[n] = hedge.call(n, "GET", f"/rates/{bsym}", params={"n": 120})
             except RuntimeError:
                 series[n] = []
-        levels = [{"pair": pid, "leg": n, "side": p["side"], "open": p["price_open"], "sl": p["sl"], "tp": p["tp"]}
+        # span = 1000 美元折成价位(按合约规格×手数, 不用券商报的每点价值): 图的纵轴 = 开仓价 ± span, 500 美元的对冲在图上才看得见动
+        levels = [{"pair": pid, "leg": n, "side": p["side"], "open": p["price_open"], "sl": p["sl"], "tp": p["tp"],
+                   "span": 1000 / ((p.get("contract_size") or 100) * p["volume"])}
                   for pid, n, p in items]
         charts.append({"symbol": usym, "series": series, "levels": levels})
     closes = [r for r in hedge.rows_this_month() if r["action"] == "close" and r["ok"] == "1" and r.get("total")]
@@ -424,35 +426,48 @@ button.arm{background:#b45309!important;color:#fff}pre{background:#0b1020;color:
 .chart .cap{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-bottom:4px;flex-wrap:wrap}.chart .cap b{color:var(--txt)}
 .sw{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:4px}
 svg{width:100%;height:220px;display:block}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:900px){.two{grid-template-columns:1fr}}
-.two form{height:100%}
+/* ---- 布局(2026-11-13 定): 状态/操作两块固定高度, 日志随内容长, 整页滚动 ---- */
+.grid{display:grid;grid-template-rows:290px 340px auto;gap:14px}.grid>section{margin:0;min-height:0;display:flex;flex-direction:column}
+.top{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0}.top .card{height:100%;margin:0;overflow:auto;min-height:0}.top .chart svg{height:200px}
+.acc{padding:0}.cmp{border:0;border-radius:10px}.cmp th:first-child{width:110px;text-align:left;color:var(--mut);font-weight:500;background:#f9fafb}.cmp thead th{background:#f9fafb;font-size:13px;color:var(--txt)}.cmp td,.cmp th{padding:3px 12px;font-size:13px;line-height:1.4}.cmp td.num,.cmp th.num{text-align:right;font-variant-numeric:tabular-nums}.cmp td:nth-child(2),.cmp thead th:nth-child(2){border-right:1px solid var(--line)}
+.ops{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;grid-template-columns:20% 1fr;grid-template-rows:1fr auto;gap:10px 16px;min-height:0;flex:1}
+.ops .pcCol{border-right:1px solid var(--line);padding-right:14px;overflow:auto;min-height:0}.ops .pcCol.dim{opacity:.45}
+.ops .stage{min-height:0;overflow:auto}.ops .stage form{border:0;padding:0;background:none;grid-template-columns:1fr 1fr 1fr 2fr}[hidden]{display:none!important}
+.ops .foot{grid-column:1/-1;border-top:1px solid var(--line);padding-top:10px;display:flex;gap:10px;align-items:center}.ops .foot pre{flex:1;min-height:36px;padding:7px 12px}.ops .foot button{padding:8px 18px;font-weight:600}
+.trade{display:flex;gap:22px;align-items:flex-end;margin-bottom:8px}.trade .legbox .big{font-size:18px}
+.trade .mod{margin-left:auto;display:flex;gap:8px;align-items:flex-end;padding:8px 12px;border:1px solid #fde68a;background:#fffbeb;border-radius:8px}.trade .mod input{width:90px;border-color:#f59e0b}.trade .mod label{color:var(--warn);font-weight:600}.trade .mod button{background:var(--warn);color:#fff;border-color:var(--warn);font-weight:600}
+.progRow{display:flex;align-items:center;gap:12px;margin:0 0 10px;font-size:13px}.progRow .bar{flex:1;height:22px;border-radius:6px;position:relative;margin:0;background:#e5e7eb}.progRow .bar i{display:block;height:100%;border-radius:6px;transition:width .4s}.progRow .bar em{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:12px;font-weight:600;color:#111827}.progRow b{font-size:16px}
+.stage table td,.stage table th{padding:4px 8px;font-size:13px}
+@media(max-width:900px){.grid{grid-template-rows:auto auto auto}.top,.ops{grid-template-columns:1fr}.ops .pcCol{border-right:0;padding-right:0}}
 </style>
 <header><h1>Hedge · 双券商对冲</h1><span id=srv style="font-size:13px;color:#fbbf24;font-weight:600;margin-left:8px"></span><span class=st id=hdr><span class=dot></span>连接中…</span><a href="/settings" style="color:#9ca3af;font-size:13px;margin-left:14px">设置</a></header>
 <main>
 <div id=banner class=banner></div>
-<section><h2>健康检查 <span class=muted style="text-transform:none;letter-spacing:0">可以交易才叫健康</span></h2>
-<table id=health><thead><tr><th>券商<th>状态<th>详情</tr></thead><tbody id=healthRows></tbody></table>
-<div style="margin-top:10px;display:flex;gap:12px;align-items:flex-start"><button type=button id=pcBtn onclick="precheck()">pre-check</button><div id=pc class=muted>开仓前点一下: 两腿就绪 · 本机时间 · 公网 IP 没跑过(只检查, 不拦)</div></div></section>
-<div id=setSummary class=muted style="font-size:13px;margin-bottom:10px"></div>
-<section><h2>账户</h2><div class=cards id=legs></div></section>
-<div class=two><section><h2>开一对</h2>
-<form id=f onsubmit="return openPair(event)">
-<label>品种<select id=symbol></select></label>
-<label>手数<input id=volume type=number step=0.01 min=0.01></label>
-<label>止损 = 止盈 $<input id=usd type=number step=1 min=1></label>
-<label>方向<div class=dir><button type=button id=dBuy class=on onclick="setDir('buy')">A 买涨 · B 买跌</button><button type=button id=dSell onclick="setDir('sell')">A 买跌 · B 买涨</button></div></label>
-<label>&nbsp;<button class=pri id=openBtn>开一对</button></label>
-<div class=preview id=preview></div>
-</form></section><section><h2>平一对 <span class=muted id=pairsum></span><span class=muted id=settled></span><span class=dn id=outbox></span></h2>
-<form onsubmit="return false" id=closeForm style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
-<div class=preview id=closePreview style="grid-column:1/-1">没有持仓对</div>
-<label>止损 = 止盈 $<input id=musd type=number step=1 min=1></label>
-<label>&nbsp;<button id=modBtn type=button onclick="modify()">更新止损止盈</button></label>
-<label>&nbsp;<button class=dng id=closeBtn type=button onclick="closePair()">平一对</button></label>
-</form>
-</section></div><pre id=out class=muted style="margin-bottom:14px">—</pre><section><h2>持仓明细</h2><table style="margin-top:10px"><thead><tr><th>对<th>腿<th>ticket<th>品种<th>方向<th class=num>手数<th class=num>开仓<th class=num>现价<th class=num>止损<th class=num>止盈<th class=num>浮盈<th class=num>一对合计</tr></thead><tbody id=pairs></tbody></table></section>
-<section id=chartsec style="display:none"><h2>走势 · M5 最近 10 小时 <span class=muted id=chartnote></span></h2><div id=charts></div></section>
-<section><h2>日志 <span class=muted id=logsum></span></h2><div id=log></div></section>
+<div class=grid>
+<section><h2>状态 <span id=setSummary class=muted style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+<div class=top><div class="card acc" id=accBox></div><div class="card chart" id=chartBox><div class=cap><b>走势</b> <span class=muted>没有持仓</span></div></div></div></section>
+
+<section><h2>操作 <span class=muted id=stepHint style="text-transform:none;letter-spacing:0"></span></h2>
+<div class=ops>
+ <div class=pcCol id=pcCol><div class=muted style="font-size:12px;margin-bottom:8px">pre-check · 开仓前点一下(只检查, 不拦)</div><div id=pc class=muted>还没检查</div></div>
+ <div class=stage id=stage>
+  <form id=f onsubmit="return openPair()">
+  <label>品种<select id=symbol></select></label>
+  <label>手数<input id=volume type=number step=0.01 min=0.01></label>
+  <label>止损 = 止盈 $<input id=usd type=number step=1 min=1></label>
+  <label>方向<div class=dir><button type=button id=dBuy class=on onclick="setDir('buy')">A 买涨 · B 买跌</button><button type=button id=dSell onclick="setDir('sell')">A 买跌 · B 买涨</button></div></label>
+  <div class=preview id=preview></div>
+  </form>
+  <div id=tradeStage hidden>
+   <div id=closePreview></div>
+   <table><thead><tr><th>对<th>腿<th>ticket<th>品种<th>方向<th class=num>手数<th class=num>开仓<th class=num>现价<th class=num>止损<th class=num>止盈<th class=num>浮盈<th class=num>一对合计</tr></thead><tbody id=pairs></tbody></table>
+  </div>
+ </div>
+ <div class=foot><pre id=out class=muted>—</pre><button type=button id=pcBtn onclick="precheck()">检查</button><button type=button class=pri id=openBtn onclick="openPair()">开一对</button><button type=button class=dng id=closeBtn onclick="closePair()">平一对</button></div>
+</div></section>
+
+<section><h2>操作日志 <span class=muted id=logsum></span><span class=muted id=settled></span><span class=dn id=outbox></span><span class=muted style="text-transform:none;letter-spacing:0;margin-left:auto">最新在前 · 点一行展开</span></h2><div id=log></div></section>
+</div>
 </main>
 <script>
 const $=id=>document.getElementById(id);let dir='buy',S=null;
@@ -464,29 +479,28 @@ function renderPreview(){if(!S)return;const sl=+$('usd').value||0,tp=sl,v=$('vol
  const sp=S.specs||{};const dist=n=>sp[n]&&sp[n].per_lot?(sl/(sp[n].per_lot*v)).toFixed(2):'?';
  $('preview').innerHTML=`<b>${A}</b> ${pa} ${v} 手 ${sym}(止损距 ${dist('A')} 价位) &nbsp;+&nbsp; <b>${B}</b> ${pb} ${v} 手(止损距 ${dist('B')} 价位) &nbsp;·&nbsp; 每腿止损 $${sl} / 止盈 $${tp} &nbsp;·&nbsp; 价格走到一边止盈时另一边同价位止损, 两腿一起出场`;}
 function badge(cls,txt){return `<span class="badge ${cls}${cls==='error'?' blink':''}">${txt}</span>`;}
-function renderHealth(s){const rows=[],probs=[];
+function renderHealth(s){const cell={},probs=[];
  for(const [n,l] of Object.entries(s.legs)){const legLabel=l.label||n;
-  if(!l.proc.alive){rows.push([legLabel,badge('error','腿未运行'),'3 秒内自动重拉']);probs.push(`${legLabel}: 腿未运行`);continue;}
-  if(!('login' in l)){rows.push([legLabel,badge('error','未连接 MT5'),l.reason||'']);probs.push(`${legLabel}: ${l.reason||'未连接'}`);continue;}
-  if(!l.ok){rows.push([legLabel,badge('error','不能交易'),`${l.reason} · 账号 ${l.login}`]);probs.push(`${legLabel}: ${l.reason}`);continue;}
-  rows.push([legLabel,badge('ok','可交易'),`账号 ${l.login} · ${l.server} · ${l.demo?'DEMO':'<b class=dn>LIVE 真金</b>'} · 净值 ${l.equity.toFixed(2)} ${l.currency}`]);}
- $('healthRows').innerHTML=rows.map(r=>`<tr><td>${r[0]}<td>${r[1]}<td class=muted>${r[2]}</td></tr>`).join('');
+  if(!l.proc.alive){cell[n]=badge('error','腿未运行')+' <span class=muted>3 秒内自动重拉</span>';probs.push(`${legLabel}: 腿未运行`);continue;}
+  if(!('login' in l)){cell[n]=badge('error','未连接 MT5')+` <span class=muted>${l.reason||''}</span> <button onclick="restartLeg('${n}')">重启腿</button>`;probs.push(`${legLabel}: ${l.reason||'未连接'}`);continue;}
+  if(!l.ok){cell[n]=badge('error','不能交易')+` <span class=dn>${l.reason}</span>`;probs.push(`${legLabel}: ${l.reason}`);continue;}
+  cell[n]=badge('ok','可交易');}
  const mm=(s.pairs||[]).filter(r=>r.mismatch).map(r=>r.mismatch+' — 再点一次「更新止损止盈」或「平一对」');
  if(s.spec_warn)mm.push(s.spec_warn);
- const b=$('banner');if(probs.length||mm.length){b.className='banner on';b.textContent='⚠ '+[...probs.map(x=>'不能交易 — '+x),...mm].join(' ｜ ');}else{b.className='banner ok';b.textContent='✔ 两腿就绪, 可以交易';}}
-function legCard(n,l){const p=l.proc;
- if(!('login' in l)){const r=l.reason||(p.alive?'腿服务启动中…':'腿进程未运行');
-  return `<div class=card><div class=hd><span class="dot bad"></span><b>${l.label}</b><span class=tag>${n}</span><span style="margin-left:auto"><button onclick="restartLeg('${n}')">重启腿</button></span></div><div class=alert>${r}</div><div class=muted style="font-size:12px;margin-top:4px">腿进程 ${p.alive?'运行中 pid '+p.pid:'未运行'}${p.restarts?' · 已重启 '+p.restarts+' 次':''}</div></div>`;}
- return `<div class=card><div class=hd><span class="dot ${l.ok?'ok':'bad'}"></span><b>${l.label}</b><span class=tag>${n}</span><span class="tag ${l.demo?'demo':'live'}">${l.demo?'DEMO':'LIVE 真金'}</span><span class=muted style="margin-left:auto;font-size:12px">${l.login} · ${l.server}</span></div>
- <div class=kv><span>余额</span><b>${l.balance.toFixed(2)} ${l.currency}</b><span>净值</span><b>${l.equity.toFixed(2)}</b><span>浮动盈亏</span><b>${money(l.float)}</b><span>可用保证金</span><b>${l.margin_free.toFixed(2)}</b><span>持仓</span><b>${l.positions.length}</b><span>已用保证金</span><b>${l.margin.toFixed(2)}</b></div>
- ${l.ok?'':`<div class=alert>不能交易: ${l.reason}</div>`}</div>`;}
+ const b=$('banner');if(probs.length||mm.length){b.className='banner on';b.textContent='⚠ '+[...probs.map(x=>'不能交易 — '+x),...mm].join(' ｜ ');}else{b.className='banner';b.textContent='';}
+ return cell;}
+function renderAcc(s,cell){const ns=Object.keys(s.legs);const v=(l,f)=>('login' in l)?f(l):'<span class=muted>—</span>';
+ const row=(k,f)=>`<tr><th>${k}${ns.map(n=>`<td class=num>${v(s.legs[n],f)}`).join('')}</tr>`;
+ $('accBox').innerHTML=`<table class=cmp><thead><tr><th>${ns.map(n=>{const l=s.legs[n];return `<th class=num><span class="dot ${l.ok?'ok':'bad'}"></span><b>${l.label||n}</b> <span class=tag>${n}</span> ${('login' in l)?`<span class="tag ${l.demo?'demo':'live'}">${l.demo?'DEMO':'LIVE 真金'}</span>`:''}`;}).join('')}</tr></thead><tbody>
+ <tr><th>状态${ns.map(n=>`<td class=num>${cell[n]||''}`).join('')}</tr>
+ ${row('账号',l=>l.login)}${row('服务器',l=>l.server)}${row('余额',l=>l.balance.toFixed(2)+' '+l.currency)}${row('净值',l=>l.equity.toFixed(2))}
+ ${row('浮动盈亏',l=>money(l.float))}${row('可用保证金',l=>l.margin_free.toFixed(2))}${row('已用保证金',l=>l.margin.toFixed(2))}${row('持仓',l=>l.positions.length)}</tbody></table>`;}
 async function refresh(){let s;try{s=await(await fetch('/api/state')).json();}catch(e){$('hdr').innerHTML='<span class="dot bad"></span>页面服务失联';return;}
  S=s;const t=new Date().toLocaleTimeString();
  $('hdr').innerHTML=`<span class="dot ${s.all_ok?'ok':'bad'}"></span>${s.all_ok?'两腿就绪':'有腿不能交易'} · ${t}`;
  if(s.server)$('srv').textContent=`公网 IP ${s.server.public_ip} · 内网 ${s.server.ip}:${s.server.port} · 实例 PID ${s.server.pid} · 启动于 ${s.server.started}`;
- renderHealth(s);
- $('legs').innerHTML=Object.entries(s.legs).map(([n,l])=>legCard(n,l)).join('');
- if(!$('symbol').options.length){s.defaults.symbols.forEach(x=>$('symbol').add(new Option(x,x)));$('volume').value=s.defaults.volume;$('usd').value=s.defaults.usd;$('musd').value=s.defaults.usd;}
+ renderAcc(s,renderHealth(s));
+ if(!$('symbol').options.length){s.defaults.symbols.forEach(x=>$('symbol').add(new Option(x,x)));$('volume').value=s.defaults.volume;$('usd').value=s.defaults.usd;}
  renderPreview();
  let rows='',tot=0;
  for(const r of s.pairs){const ls=Object.keys(r.legs);tot+=r.pnl;ls.forEach((n,i)=>{const p=r.legs[n],lab=s.legs[n]?.label||n;
@@ -495,15 +509,20 @@ async function refresh(){let s;try{s=await(await fetch('/api/state')).json();}ca
   (i?'<td>':`<td class=num rowspan=${ls.length}><b>${money(r.pnl)}</b>`)+'</tr>';});}
  for(const p of s.orphans)rows+=`<tr class=naked><td class=muted>无配对<td>${s.legs[p.leg]?.label||p.leg}<td>${p.ticket}<td>${p.symbol}<td>${side(p.side)}<td class=num>${p.volume}<td class=num>${p.price_open}<td class=num>${p.price_current??''}<td class=num>${p.sl}<td class=num>${p.tp}<td class=num>${money(p.profit+p.swap)}<td class=muted>magic ${s.magic} 但另一腿没有反向单</tr>`;
  $('pairs').innerHTML=rows||'<tr><td colspan=12 class=muted style="text-align:center;padding:18px">没有持仓对</td></tr>';
- const cur=s.pairs[0];
+ const cur=s.pairs[0];const inTrade=s.pairs.length>0||s.orphans.length>0;
+ $('f').hidden=inTrade;$('tradeStage').hidden=!inTrade;$('pcCol').classList.toggle('dim',inTrade);
+ $('stepHint').textContent=inTrade?'有持仓: 看结果, 要走就平一对':'没有持仓: 先检查, 再开一对';
+ if(inTrade&&$('pc').textContent==='还没检查')$('pc').innerHTML='<span class=muted>这对开仓前没检查</span>';
+ if(!inTrade&&$('pc').textContent==='这对开仓前没检查')$('pc').innerHTML='<span class=muted>还没检查</span>';
  if(cur){const alive=Object.entries(cur.legs).filter(([n,p])=>!p.closed);const best=alive.length?Math.max(...alive.map(([n,p])=>p.profit+p.swap)):0;const tgt=cur.target||0;const pct=tgt?Math.max(0,Math.min(100,best/tgt*100)):0;
-  $('closePreview').innerHTML=`<div class=legs>${Object.entries(cur.legs).map(([n,p])=>`<div class=legbox><div class=muted>${s.legs[n]?.label||n} ${p.closed?'':side(p.side)}</div><div class=big>${p.closed?'<span class=muted>已出场</span>':money(p.profit+p.swap)}</div>${p.closed?'':`<div class=muted style="font-size:12px">止损 $${p.sl_usd??'<b class=dn>无</b>'} · 止盈 $${p.tp_usd??'<b class=dn>无</b>'}</div>`}</div>`).join('')}
-   <div class=legbox><div class=muted>一对合计</div><div class=big>${money(cur.pnl)}</div></div></div>
-   <div class=prog><div class=muted>目标 $${tgt||'?'} · 领先腿 ${money(best)} · 到目标 <b>${pct.toFixed(0)}%</b>${pct>=85?' <span class=up>· 差不多可以手动平了</span>':''}</div><div class=bar><i style="width:${pct}%;background:${pct>=85?'var(--up)':'var(--acc)'}"></i></div></div>`;}
- else $('closePreview').innerHTML='没有持仓对';
- $('openBtn').disabled=!s.all_ok||s.pairs.length>0;$('modBtn').disabled=!s.pairs.length;
- document.querySelector('#f .preview').innerHTML=s.pairs.length?'<span class=dn>已有一对在场, 平掉后才能再开</span>':document.querySelector('#f .preview').innerHTML;
- $('pairsum').innerHTML=s.pairs.length?`${s.pairs.length} 对 · 合计 ${money(tot)}`:'';$('closeBtn').disabled=!s.pairs.length;
+  const musdVal=$('musd')?$('musd').value:'';
+  $('closePreview').innerHTML=`<div class=trade>${Object.entries(cur.legs).map(([n,p])=>`<div class=legbox><div class=muted>${s.legs[n]?.label||n} ${p.closed?'':side(p.side)}</div><div class=big>${p.closed?'<span class=muted>已出场</span>':money(p.profit+p.swap)}</div>${p.closed?'':`<div class=muted style="font-size:12px">止损 $${p.sl_usd??'<b class=dn>无</b>'} · 止盈 $${p.tp_usd??'<b class=dn>无</b>'}</div>`}</div>`).join('')}
+   <div class=legbox><div class=muted>一对合计</div><div class=big>${money(cur.pnl)}</div></div>
+   <div class=mod><label>止损 = 止盈 $<input id=musd type=number step=1 min=1 value="${musdVal}"></label><button type=button id=modBtn onclick="modify()">更新止损止盈</button></div></div>
+   <div class=progRow><span>到目标 <b>${pct.toFixed(0)}%</b></span><div class=bar><i style="width:${pct}%;background:${pct>=85?'var(--up)':'var(--acc)'}"></i><em>领先腿 ${best>=0?'+':''}${best.toFixed(2)} / $${tgt||'?'}</em></div>${pct>=85?'<span class=up><b>差不多可以手动平了</b></span>':'<span class=muted>100% = 券商止盈, 另一腿自动补平</span>'}</div>`;
+  if(!musdVal)$('musd').value=s.defaults.usd;}
+ else $('closePreview').innerHTML=inTrade?'<div class=alert>有无配对的单腿(见下表), 页面不替你平: 去终端手动处理</div>':'';
+ $('openBtn').disabled=!s.all_ok||inTrade;$('closeBtn').disabled=!s.pairs.length;$('pcBtn').disabled=inTrade;
  $('settled').textContent=s.settled.n?` · 本月已结 ${s.settled.n} 对 合计 ${s.settled.total>=0?'+':''}${s.settled.total.toFixed(2)}`:'';
  $('outbox').textContent=s.outbox?` · 日志待发 ${s.outbox} 条(接口不通)`:(s.log_url?'':' · 未配置 log_url, 只记本地');
  drawCharts(s.charts);renderLog(s.log||[]);}
@@ -531,7 +550,7 @@ const armed={};
 function arm(id,label,fn){const b=$(id);if(armed[id]){clearTimeout(armed[id]);delete armed[id];b.textContent=b.dataset.label;b.classList.remove('arm');fn();return;}
  b.dataset.label=b.dataset.label||b.textContent;b.textContent='再点一次: '+label;b.classList.add('arm');
  armed[id]=setTimeout(()=>{delete armed[id];b.textContent=b.dataset.label;b.classList.remove('arm');},5000);}
-function openPair(e){e.preventDefault();const v=+$('volume').value,u=+$('usd').value;if(!(v>0&&u>0)){$('out').className='bad';$('out').textContent='✘ 手数/止损止盈必须大于 0';return false;}
+function openPair(){const v=+$('volume').value,u=+$('usd').value;if(!(v>0&&u>0)){$('out').className='bad';$('out').textContent='✘ 手数/止损止盈必须大于 0';return false;}
  arm('openBtn',`开 ${$('symbol').value} ${v} 手 $${u}`,()=>post('/api/open',{symbol:$('symbol').value,volume:v,usd:u,a_side:dir}));return false;}
 function modify(){const u=+$('musd').value;if(!(u>0)){$('out').className='bad';$('out').textContent='✘ 止损止盈必须大于 0';return;}arm('modBtn','两腿改成 $'+u,()=>post('/api/modify',{usd:u}));}
 function closePair(){arm('closeBtn','平掉两腿',()=>post('/api/close/all'));}
@@ -539,16 +558,17 @@ async function precheck(){const b=$('pcBtn'),o=$('pc');b.disabled=true;o.classNa
  try{const items=await(await fetch('/api/precheck',{method:'POST'})).json();
   o.innerHTML=items.map(i=>`<div><span class="dot ${i.ok===true?'ok':i.ok===false?'bad':''}"></span><b>${i.name}</b> <span class="${i.ok===false?'dn':'muted'}">${i.text}</span></div>`).join('')
    +`<div class=muted style="font-size:12px">${new Date().toLocaleTimeString()}</div>`;}
- catch(e){o.innerHTML='<span class=dn>pre-check 失败: 页面服务失联</span>';}
+ catch(e){o.innerHTML='<span class=dn>检查失败: 页面服务失联</span>';}
  b.disabled=false;}
 function restartLeg(n){post('/api/leg/'+n+'/restart');}
 const COL={A:'#2563eb',B:'#f59e0b'};
-function drawCharts(cs){const sec=$('chartsec');if(!cs||!cs.length){sec.style.display='none';return;}sec.style.display='';
- $('charts').innerHTML=cs.map(c=>{const W=1000,H=220,L=8,R=70,T=10,B=22;const all=[];
+function drawCharts(cs){if(!cs||!cs.length){$('chartBox').innerHTML='<div class=cap><b>走势</b> <span class=muted>没有持仓</span></div>';return;}
+ $('chartBox').innerHTML=cs.slice(0,1).map(c=>{const W=1000,H=220,L=8,R=70,T=10,B=22;const all=[];
   for(const n in c.series)for(const r of c.series[n])all.push(r.c);
-  for(const l of c.levels){all.push(l.open);if(l.sl)all.push(l.sl);if(l.tp)all.push(l.tp);}
-  if(!all.length)return `<div class=chart><div class=cap><b>${c.symbol}</b> 没有行情数据</div></div>`;
-  let lo=Math.min(...all),hi=Math.max(...all);const pad=(hi-lo||1)*0.08;lo-=pad;hi+=pad;
+  if(!all.length)return `<div class=cap><b>${c.symbol}</b> 没有行情数据</div>`;
+  // 纵轴 = 开仓价 ± 1000 美元对应的价位(止损止盈线超出就画不到, 不拉伸坐标)
+  let lo=Math.min(...c.levels.map(l=>l.open-l.span)),hi=Math.max(...c.levels.map(l=>l.open+l.span));
+  if(!isFinite(lo)||!isFinite(hi)||hi<=lo){lo=Math.min(...all);hi=Math.max(...all);const pad=(hi-lo||1)*0.08;lo-=pad;hi+=pad;}
   const N=Math.max(...Object.values(c.series).map(a=>a.length),2);
   const X=i=>L+(W-L-R)*i/(N-1),Y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo));
   const dec=(c.symbol.includes('JPY')?3:c.symbol.startsWith('XAU')?2:5);
@@ -556,17 +576,17 @@ function drawCharts(cs){const sec=$('chartsec');if(!cs||!cs.length){sec.style.di
   for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4,y=Y(v);g+=`<line x1=${L} x2=${W-R} y1=${y} y2=${y} stroke="#eef0f4"/><text x=${W-R+6} y=${y+4} font-size=11 fill="#9ca3af">${v.toFixed(dec)}</text>`;}
   for(const n in c.series){const a=c.series[n];if(!a.length)continue;g+=`<polyline fill=none stroke="${COL[n]||'#888'}" stroke-width=1.6 points="${a.map((r,i)=>X(i)+','+Y(r.c)).join(' ')}"/>`;}
   const seenLv={};
-  for(const l of c.levels){const lines=[[l.open,'#6b7280','开仓'],[l.sl,'#dc2626',(l.side==='buy'?'跌到':'涨到')+'止损'],[l.tp,'#16a34a',(l.side==='buy'?'涨到':'跌到')+'止盈']];
-   for(const [v,col,lab] of lines){if(!v)continue;const key=v.toFixed(dec);if(seenLv[key])continue;seenLv[key]=1;const y=Y(v);
-    g+=`<line x1=${L} x2=${W-R} y1=${y} y2=${y} stroke="${col}" stroke-dasharray="5 4" stroke-width=1/><text x=${L+4} y=${y-3} font-size=11 fill="${col}">${lab} ${key}</text>`;}}
+  for(const l of c.levels){const lines=[[l.open,'#6b7280','开仓'],[l.sl,'#dc2626',l.leg+' 止损'],[l.tp,'#16a34a',l.leg+' 止盈']];
+   for(const [v,col,lab] of lines){if(!v||v<lo||v>hi)continue;const key=Math.round(v/(hi-lo)*40);if(seenLv[key]){seenLv[key].lab+=' / '+lab;continue;}seenLv[key]={v,col,lab};}}
+  for(const k in seenLv){const {v,col,lab}=seenLv[k];const y=Y(v);g+=`<line x1=${L} x2=${W-R} y1=${y} y2=${y} stroke="${col}" stroke-dasharray="5 4" stroke-width=1/><text x=${L+4} y=${y-3} font-size=11 fill="${col}">${lab} ${v.toFixed(dec)}</text>`;}
   const last={};for(const n in c.series){const a=c.series[n];if(a.length)last[n]=a[a.length-1].c;}
   const t0=Object.values(c.series).find(a=>a.length);const tl=t0?new Date(t0[0].t*1000):null,tr=t0?new Date(t0[t0.length-1].t*1000):null;
   const fmt=d=>d?d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'';
   g+=`<text x=${L} y=${H-6} font-size=11 fill="#9ca3af">${fmt(tl)}</text><text x=${W-R} y=${H-6} font-size=11 fill="#9ca3af" text-anchor=end>${fmt(tr)}</text>`;
   const cap=Object.keys(c.series).map(n=>`<span><i class=sw style="background:${COL[n]||'#888'}"></i>${S.legs[n]?.label||n} <b>${last[n]!=null?last[n].toFixed(dec):'—'}</b></span>`).join('')+
    (Object.keys(last).length===2?`<span>两家价差 <b>${(last.A-last.B).toFixed(dec)}</b></span>`:'');
-  return `<div class=chart><div class=cap><b>${c.symbol}</b>${cap}</div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio=none>${g}</svg></div>`;}).join('');}
-['usd','volume','symbol'].forEach(id=>$(id).addEventListener('input',preview));
+  return `<div class=cap><b>${c.symbol}</b><span class=muted>M5 最近 10 小时 · 纵轴 开仓 ±2×目标</span>${cap}</div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio=none>${g}</svg>`;}).join('');}
+['usd','volume','symbol'].forEach(id=>$(id).addEventListener('input',renderPreview));
 async function loadSettings(){const S2=await(await fetch('/api/settings')).json();const ok=Object.values(S2.legs).every(l=>l.mt5_path);
  $('setSummary').innerHTML=ok?Object.entries(S2.legs).map(([n,l])=>`<b>${l.label}</b> ${l.mt5_path}`).join(' &nbsp;|&nbsp; ')+' &nbsp;<a href="/settings">改</a>':'<span class=dn>还没指定两个 MT5 的路径 → <a href="/settings">去设置</a></span>';}
 loadSettings();refresh();setInterval(refresh,5000);
@@ -618,8 +638,19 @@ pre{background:#0b1020;color:#d1d5db;border-radius:10px;padding:12px 14px;white-
 .chart .cap{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-bottom:4px;flex-wrap:wrap}.chart .cap b{color:var(--txt)}
 .sw{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:4px}
 svg{width:100%;height:220px;display:block}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:900px){.two{grid-template-columns:1fr}}
-.two form{height:100%}
+/* ---- 布局(2026-11-13 定): 状态/操作两块固定高度, 日志随内容长, 整页滚动 ---- */
+.grid{display:grid;grid-template-rows:290px 340px auto;gap:14px}.grid>section{margin:0;min-height:0;display:flex;flex-direction:column}
+.top{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0}.top .card{height:100%;margin:0;overflow:auto;min-height:0}.top .chart svg{height:200px}
+.acc{padding:0}.cmp{border:0;border-radius:10px}.cmp th:first-child{width:110px;text-align:left;color:var(--mut);font-weight:500;background:#f9fafb}.cmp thead th{background:#f9fafb;font-size:13px;color:var(--txt)}.cmp td,.cmp th{padding:3px 12px;font-size:13px;line-height:1.4}.cmp td.num,.cmp th.num{text-align:right;font-variant-numeric:tabular-nums}.cmp td:nth-child(2),.cmp thead th:nth-child(2){border-right:1px solid var(--line)}
+.ops{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;grid-template-columns:20% 1fr;grid-template-rows:1fr auto;gap:10px 16px;min-height:0;flex:1}
+.ops .pcCol{border-right:1px solid var(--line);padding-right:14px;overflow:auto;min-height:0}.ops .pcCol.dim{opacity:.45}
+.ops .stage{min-height:0;overflow:auto}.ops .stage form{border:0;padding:0;background:none;grid-template-columns:1fr 1fr 1fr 2fr}[hidden]{display:none!important}
+.ops .foot{grid-column:1/-1;border-top:1px solid var(--line);padding-top:10px;display:flex;gap:10px;align-items:center}.ops .foot pre{flex:1;min-height:36px;padding:7px 12px}.ops .foot button{padding:8px 18px;font-weight:600}
+.trade{display:flex;gap:22px;align-items:flex-end;margin-bottom:8px}.trade .legbox .big{font-size:18px}
+.trade .mod{margin-left:auto;display:flex;gap:8px;align-items:flex-end;padding:8px 12px;border:1px solid #fde68a;background:#fffbeb;border-radius:8px}.trade .mod input{width:90px;border-color:#f59e0b}.trade .mod label{color:var(--warn);font-weight:600}.trade .mod button{background:var(--warn);color:#fff;border-color:var(--warn);font-weight:600}
+.progRow{display:flex;align-items:center;gap:12px;margin:0 0 10px;font-size:13px}.progRow .bar{flex:1;height:22px;border-radius:6px;position:relative;margin:0;background:#e5e7eb}.progRow .bar i{display:block;height:100%;border-radius:6px;transition:width .4s}.progRow .bar em{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:12px;font-weight:600;color:#111827}.progRow b{font-size:16px}
+.stage table td,.stage table th{padding:4px 8px;font-size:13px}
+@media(max-width:900px){.grid{grid-template-rows:auto auto auto}.top,.ops{grid-template-columns:1fr}.ops .pcCol{border-right:0;padding-right:0}}
 </style>
 <style>.setleg{display:grid;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}.setleg h4{margin:0 0 2px;font-size:14px}.setleg input,.setleg select{width:100%}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:900px){.grid2{grid-template-columns:1fr}}</style>
