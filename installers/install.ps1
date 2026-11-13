@@ -24,11 +24,19 @@ if (-not $ok) {
 # ---------------- 2. 包 ----------------
 Write-Host "[2/4] 安装 $Spec"
 python -m pip install --quiet --upgrade pip
-python -m pip install --quiet --upgrade $Spec
+# 不用缓存: 刚发布的版本 pip 本地索引缓存里没有, 会报 "No matching distribution"; PyPI 镜像同步有延迟, 失败就等一会再试
+$done = $false
+foreach ($i in 1..6) {
+  python -m pip install --quiet --upgrade --no-cache-dir $Spec
+  if ($LASTEXITCODE -eq 0) { $done = $true; break }
+  Write-Host "  $Spec 暂未在 PyPI 索引里, 30 秒后重试 ($i/6)"
+  Start-Sleep -Seconds 30
+}
+if (-not $done) { throw "$Spec 安装失败" }
 
 # ---------------- 3. 两份 MT5 + 桌面快捷方式 ----------------
 Write-Host "[3/4] 装两份 MT5"
-mt5-hedge setup
+python -m mt5_hedge.cli setup   # 不靠 PATH 里有没有 mt5-hedge.exe(刚装的 Python 常没刷新 PATH)
 
 # ---------------- 4. hedge.json: 只覆盖 log_url / app_host 两个键, 其余(legs, 页面设置)原样保留 ----------------
 # 用 Python 合并: PowerShell 的 ConvertTo-Json 默认只两层会截断 legs, 且 PowerShell 5 写 UTF-8 带 BOM.
