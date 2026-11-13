@@ -92,31 +92,35 @@ def _lan_ip() -> str:
 
 
 def _close_naked():
-    """唯一规则: 一对里只剩一腿(另一腿被 SL/TP 或手动平掉), 就市价平掉这一腿. 失败下一轮再试."""
-    live = {}
-    for name in hedge.LEGS:
+    """唯一规则: 一对里只剩一腿(另一腿被 SL/TP 或手动平掉), 就市价平掉这一腿. 失败下一轮再试.
+    口径 = 终端(pairs_live): 单子上带 hedge-<pid> 标记或本机日志记过的对, 终端里只剩一腿 = 裸露.
+    ③ 凑出来的对不会只剩一腿(凑对本身要两腿); 没任何凭据的单腿是"无配对", 不动."""
+    try:
+        positions = {n: hedge.call(n, "GET", "/positions", params={"magic": hedge.MAGIC}) for n in hedge.LEGS}
+    except RuntimeError:
+        return   # 有腿看不见就不判断(看不见 ≠ 已平)
+    synth: set = set()
+    live = hedge.pairs_live(positions, synth)
+    logged = hedge.pairs_from_csv()   # 另一腿的 ticket 只有日志知道(用来登记它的实际出场结果)
+    for pid, tks in live.items():
+        if len(tks) != 1 or pid in synth:
+            continue
+        leg, tk = next(iter(tks.items()))
+        gone = {l: t for l, t in logged.get(pid, {}).items() if l != leg}
+        log.warning("pair %s 单腿裸露(%s ticket %s), 补平", pid, leg, tk)
         try:
-            live[name] = {p["ticket"] for p in hedge.call(name, "GET", "/positions", params={"magic": hedge.MAGIC})}
-        except RuntimeError:
-            return   # 有腿看不见就不判断(看不见 ≠ 已平)
-    for pid, tks in hedge.pairs_from_csv().items():
-        alive = {leg: tk for leg, tk in tks.items() if tk in live[leg]}
-        if len(tks) == 2 and len(alive) == 1:
-            leg, tk = next(iter(alive.items()))
-            gone_leg, gone_tk = next((l, t) for l, t in tks.items() if l != leg)
-            log.warning("pair %s 单腿裸露(%s ticket %s), 补平", pid, leg, tk)
-            try:
-                c = hedge.call(leg, "POST", "/close", json={"ticket": tk, "magic": hedge.MAGIC})
-                hedge.record(hedge.close_row(pid, leg, tk, c, "auto_naked", f"{c['result']} auto: 另一腿已出场"))
-                # 先走的那腿是券商(SL/TP)或人平的: 结果和原因从券商历史拿, 补一行让这对退出活跃集合
+            c = hedge.call(leg, "POST", "/close", json={"ticket": tk, "magic": hedge.MAGIC})
+            hedge.record(hedge.close_row(pid, leg, tk, c, "auto_naked", f"{c['result']} auto: 另一腿已出场"))
+            tot = float(c.get("total") or 0)
+            for gone_leg, gone_tk in gone.items():   # 先走的那腿是券商(SL/TP)或人平的: 结果和原因从券商历史拿
                 g = hedge.call(gone_leg, "GET", f"/realized/{gone_tk}")
                 hedge.record(hedge.close_row(pid, gone_leg, gone_tk, g, g.get("reason"), "ABSENT: 券商或手动平, 由看护登记"))
-                log.info("pair %s 结清: A+B 合计 %+.2f", pid,
-                         sum(float(x.get("total") or 0) for x in (c, g)))
-            except RuntimeError as e:
-                hedge.record({"pair_id": pid, "action": "close", "leg": leg, "ticket": tk, "ok": 0,
-                             "note": f"auto close failed: {e}"[:200]})
-                log.error("pair %s 补平失败, 下一轮再试: %s", pid, e)
+                tot += float(g.get("total") or 0)
+            log.info("pair %s 结清: 合计 %+.2f%s", pid, tot, "" if gone else "(另一腿本机日志没记录, 只算这一腿)")
+        except RuntimeError as e:
+            hedge.record({"pair_id": pid, "action": "close", "leg": leg, "ticket": tk, "ok": 0,
+                         "note": f"auto close failed: {e}"[:200]})
+            log.error("pair %s 补平失败, 下一轮再试: %s", pid, e)
 
 
 def _supervise():
@@ -201,7 +205,7 @@ def state():
             seen.add((leg, tk))
             row["legs"][leg] = byticket[leg][tk]
         row["pnl"] = round(sum(p["profit"] + p["swap"] for p in row["legs"].values()), 2)
-        row["naked"] = False
+        row["naked"] = len(tks) == 1   # 带标记的对只剩一腿: 看护几秒内会补平
         row["target"] = targets.get(pid)
         # 两腿 SL/TP 美元数不一致(一边更新成功一边失败, 或一腿没挂 SL/TP) → 页面红闪
         vals = [(l, p.get("sl_usd"), p.get("tp_usd")) for l, p in row["legs"].items() if not p.get("closed")]
@@ -404,7 +408,7 @@ label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut)
 .dir{display:flex;gap:0}.dir button{flex:1;border-radius:0}.dir button:first-child{border-radius:6px 0 0 6px}.dir button:last-child{border-radius:0 6px 6px 0}.dir button.on{background:#111827;color:#fff;border-color:#111827}
 .preview{grid-column:1/-1;font-size:13px;color:var(--mut)}.preview b{color:var(--txt)}
 details.pair{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:8px}details.pair>summary{cursor:pointer;padding:9px 12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;list-style:none}details.pair>summary::-webkit-details-marker{display:none}details.pair>summary::before{content:'▶';font-size:10px;color:var(--mut)}details[open].pair>summary::before{content:'▼'}details.pair.live{border-color:var(--acc)}details.pair.warn{border-color:var(--dn)}.tag{font-size:11px;padding:1px 7px;border-radius:9px;background:#eef2ff;color:var(--acc)}.tag.done{background:#f3f4f6;color:var(--mut)}.tag.bad{background:#fee2e2;color:var(--dn)}details.pair table{border:0;border-radius:0;border-top:1px solid var(--line)}details.pair td,details.pair th{font-size:12px;padding:5px 10px}
-pre{background:#0b1020;color:#d1d5db;border-radius:10px;padding:12px 14px;white-space:pre-wrap;min-height:48px;font-size:13px;margin:0}pre.ok{border-left:4px solid var(--up)}pre.bad{border-left:4px solid var(--dn)}
+button.arm{background:#b45309!important;color:#fff}pre{background:#0b1020;color:#d1d5db;border-radius:10px;padding:12px 14px;white-space:pre-wrap;min-height:48px;font-size:13px;margin:0}pre.ok{border-left:4px solid var(--up)}pre.bad{border-left:4px solid var(--dn)}
 .muted{color:var(--mut)}
 .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:550;background:#fff;color:var(--mut);border:1px solid var(--line)}
 .badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
@@ -443,29 +447,29 @@ svg{width:100%;height:220px;display:block}
 <form onsubmit="return false" id=closeForm style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
 <div class=preview id=closePreview style="grid-column:1/-1">没有持仓对</div>
 <label>止损 = 止盈 $<input id=musd type=number step=1 min=1></label>
-<label>&nbsp;<button id=modBtn onclick="modify()">更新止损止盈</button></label>
-<label>&nbsp;<button class=dng id=closeAll onclick="closeAll()">平一对</button></label>
+<label>&nbsp;<button id=modBtn type=button onclick="modify()">更新止损止盈</button></label>
+<label>&nbsp;<button class=dng id=closeBtn type=button onclick="closePair()">平一对</button></label>
 </form>
-</section></div><section><h2>持仓明细</h2><table style="margin-top:10px"><thead><tr><th>对<th>腿<th>ticket<th>品种<th>方向<th class=num>手数<th class=num>开仓<th class=num>现价<th class=num>止损<th class=num>止盈<th class=num>浮盈<th class=num>一对合计</tr></thead><tbody id=pairs></tbody></table></section>
+</section></div><pre id=out class=muted style="margin-bottom:14px">—</pre><section><h2>持仓明细</h2><table style="margin-top:10px"><thead><tr><th>对<th>腿<th>ticket<th>品种<th>方向<th class=num>手数<th class=num>开仓<th class=num>现价<th class=num>止损<th class=num>止盈<th class=num>浮盈<th class=num>一对合计</tr></thead><tbody id=pairs></tbody></table></section>
 <section id=chartsec style="display:none"><h2>走势 · M5 最近 10 小时 <span class=muted id=chartnote></span></h2><div id=charts></div></section>
-<section><h2>日志 <span class=muted id=logsum></span></h2><pre id=out class=muted style="margin-bottom:10px">—</pre><div id=log></div></section>
+<section><h2>日志 <span class=muted id=logsum></span></h2><div id=log></div></section>
 </main>
 <script>
 const $=id=>document.getElementById(id);let dir='buy',S=null;
 const money=v=>`<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v.toFixed(2)}</span>`;
 const side=s=>`<span class="side ${s}">${s==='buy'?'买涨':'买跌'}</span>`;
-function setDir(d){dir=d;$('dBuy').classList.toggle('on',d==='buy');$('dSell').classList.toggle('on',d==='sell');preview();}
-function preview(){if(!S)return;const sl=+$('usd').value||0,tp=sl,v=$('volume').value,sym=$('symbol').value;
+function setDir(d){dir=d;$('dBuy').classList.toggle('on',d==='buy');$('dSell').classList.toggle('on',d==='sell');renderPreview();}
+function renderPreview(){if(!S)return;const sl=+$('usd').value||0,tp=sl,v=$('volume').value,sym=$('symbol').value;
  const A=S.legs.A?.label||'A',B=S.legs.B?.label||'B';const a=dir==='buy',pa=a?'买涨':'买跌',pb=a?'买跌':'买涨';
  const sp=S.specs||{};const dist=n=>sp[n]&&sp[n].per_lot?(sl/(sp[n].per_lot*v)).toFixed(2):'?';
  $('preview').innerHTML=`<b>${A}</b> ${pa} ${v} 手 ${sym}(止损距 ${dist('A')} 价位) &nbsp;+&nbsp; <b>${B}</b> ${pb} ${v} 手(止损距 ${dist('B')} 价位) &nbsp;·&nbsp; 每腿止损 $${sl} / 止盈 $${tp} &nbsp;·&nbsp; 价格走到一边止盈时另一边同价位止损, 两腿一起出场`;}
 function badge(cls,txt){return `<span class="badge ${cls}${cls==='error'?' blink':''}">${txt}</span>`;}
-function healthRows(s){const rows=[],probs=[];
- for(const [n,l] of Object.entries(s.legs)){const lab=l.label||n;
-  if(!l.proc.alive){rows.push([lab,badge('error','腿未运行'),'3 秒内自动重拉']);probs.push(`${lab}: 腿未运行`);continue;}
-  if(!('login' in l)){rows.push([lab,badge('error','未连接 MT5'),l.reason||'']);probs.push(`${lab}: ${l.reason||'未连接'}`);continue;}
-  if(!l.ok){rows.push([lab,badge('error','不能交易'),`${l.reason} · 账号 ${l.login}`]);probs.push(`${lab}: ${l.reason}`);continue;}
-  rows.push([lab,badge('ok','可交易'),`账号 ${l.login} · ${l.server} · ${l.demo?'DEMO':'<b class=dn>LIVE 真金</b>'} · 净值 ${l.equity.toFixed(2)} ${l.currency}`]);}
+function renderHealth(s){const rows=[],probs=[];
+ for(const [n,l] of Object.entries(s.legs)){const legLabel=l.label||n;
+  if(!l.proc.alive){rows.push([legLabel,badge('error','腿未运行'),'3 秒内自动重拉']);probs.push(`${legLabel}: 腿未运行`);continue;}
+  if(!('login' in l)){rows.push([legLabel,badge('error','未连接 MT5'),l.reason||'']);probs.push(`${legLabel}: ${l.reason||'未连接'}`);continue;}
+  if(!l.ok){rows.push([legLabel,badge('error','不能交易'),`${l.reason} · 账号 ${l.login}`]);probs.push(`${legLabel}: ${l.reason}`);continue;}
+  rows.push([legLabel,badge('ok','可交易'),`账号 ${l.login} · ${l.server} · ${l.demo?'DEMO':'<b class=dn>LIVE 真金</b>'} · 净值 ${l.equity.toFixed(2)} ${l.currency}`]);}
  $('healthRows').innerHTML=rows.map(r=>`<tr><td>${r[0]}<td>${r[1]}<td class=muted>${r[2]}</td></tr>`).join('');
  const mm=(s.pairs||[]).filter(r=>r.mismatch).map(r=>r.mismatch+' — 再点一次「更新止损止盈」或「平一对」');
  if(s.spec_warn)mm.push(s.spec_warn);
@@ -480,10 +484,10 @@ async function refresh(){let s;try{s=await(await fetch('/api/state')).json();}ca
  S=s;const t=new Date().toLocaleTimeString();
  $('hdr').innerHTML=`<span class="dot ${s.all_ok?'ok':'bad'}"></span>${s.all_ok?'两腿就绪':'有腿不能交易'} · ${t}`;
  if(s.server)$('srv').textContent=`公网 IP ${s.server.public_ip} · 内网 ${s.server.ip}:${s.server.port} · 实例 PID ${s.server.pid} · 启动于 ${s.server.started}`;
- healthRows(s);
+ renderHealth(s);
  $('legs').innerHTML=Object.entries(s.legs).map(([n,l])=>legCard(n,l)).join('');
  if(!$('symbol').options.length){s.defaults.symbols.forEach(x=>$('symbol').add(new Option(x,x)));$('volume').value=s.defaults.volume;$('usd').value=s.defaults.usd;$('musd').value=s.defaults.usd;}
- preview();
+ renderPreview();
  let rows='',tot=0;
  for(const r of s.pairs){const ls=Object.keys(r.legs);tot+=r.pnl;ls.forEach((n,i)=>{const p=r.legs[n],lab=s.legs[n]?.label||n;
   rows+=`<tr class="${(r.naked||r.mismatch)?'naked':''}${i?' sub':''}"><td>${r.pair}<td>${lab}<td>${p.ticket}`+(p.closed?`<td colspan=8 class=muted>已出场(止损/止盈或手动) — 另一腿 3 秒内自动补平`:
@@ -492,14 +496,14 @@ async function refresh(){let s;try{s=await(await fetch('/api/state')).json();}ca
  for(const p of s.orphans)rows+=`<tr class=naked><td class=muted>无配对<td>${s.legs[p.leg]?.label||p.leg}<td>${p.ticket}<td>${p.symbol}<td>${side(p.side)}<td class=num>${p.volume}<td class=num>${p.price_open}<td class=num>${p.price_current??''}<td class=num>${p.sl}<td class=num>${p.tp}<td class=num>${money(p.profit+p.swap)}<td class=muted>magic ${s.magic} 但另一腿没有反向单</tr>`;
  $('pairs').innerHTML=rows||'<tr><td colspan=12 class=muted style="text-align:center;padding:18px">没有持仓对</td></tr>';
  const cur=s.pairs[0];
- if(cur){const legs=Object.entries(cur.legs).filter(([n,p])=>!p.closed);const best=legs.length?Math.max(...legs.map(([n,p])=>p.profit+p.swap)):0;const tgt=cur.target||0;const pct=tgt?Math.max(0,Math.min(100,best/tgt*100)):0;
+ if(cur){const alive=Object.entries(cur.legs).filter(([n,p])=>!p.closed);const best=alive.length?Math.max(...alive.map(([n,p])=>p.profit+p.swap)):0;const tgt=cur.target||0;const pct=tgt?Math.max(0,Math.min(100,best/tgt*100)):0;
   $('closePreview').innerHTML=`<div class=legs>${Object.entries(cur.legs).map(([n,p])=>`<div class=legbox><div class=muted>${s.legs[n]?.label||n} ${p.closed?'':side(p.side)}</div><div class=big>${p.closed?'<span class=muted>已出场</span>':money(p.profit+p.swap)}</div>${p.closed?'':`<div class=muted style="font-size:12px">止损 $${p.sl_usd??'<b class=dn>无</b>'} · 止盈 $${p.tp_usd??'<b class=dn>无</b>'}</div>`}</div>`).join('')}
    <div class=legbox><div class=muted>一对合计</div><div class=big>${money(cur.pnl)}</div></div></div>
    <div class=prog><div class=muted>目标 $${tgt||'?'} · 领先腿 ${money(best)} · 到目标 <b>${pct.toFixed(0)}%</b>${pct>=85?' <span class=up>· 差不多可以手动平了</span>':''}</div><div class=bar><i style="width:${pct}%;background:${pct>=85?'var(--up)':'var(--acc)'}"></i></div></div>`;}
  else $('closePreview').innerHTML='没有持仓对';
  $('openBtn').disabled=!s.all_ok||s.pairs.length>0;$('modBtn').disabled=!s.pairs.length;
  document.querySelector('#f .preview').innerHTML=s.pairs.length?'<span class=dn>已有一对在场, 平掉后才能再开</span>':document.querySelector('#f .preview').innerHTML;
- $('pairsum').innerHTML=s.pairs.length?`${s.pairs.length} 对 · 合计 ${money(tot)}`:'';$('closeAll').disabled=!s.pairs.length;
+ $('pairsum').innerHTML=s.pairs.length?`${s.pairs.length} 对 · 合计 ${money(tot)}`:'';$('closeBtn').disabled=!s.pairs.length;
  $('settled').textContent=s.settled.n?` · 本月已结 ${s.settled.n} 对 合计 ${s.settled.total>=0?'+':''}${s.settled.total.toFixed(2)}`:'';
  $('outbox').textContent=s.outbox?` · 日志待发 ${s.outbox} 条(接口不通)`:(s.log_url?'':' · 未配置 log_url, 只记本地');
  drawCharts(s.charts);renderLog(s.log||[]);}
@@ -509,11 +513,11 @@ function renderLog(gs){const el=$('log');const was={};el.querySelectorAll('detai
  $('logsum').textContent=gs.length?` · 共 ${gs.length} 对`:'';
  if(!gs.length){el.innerHTML='<div class=muted>还没有记录</div>';return;}
  el.innerHTML=gs.map(g=>{const open=g.pair in touched?was[g.pair]:g.active;
-  const legs=Object.entries(g.legs).map(([n,l])=>`${n} ${l.side==='buy'?'买':l.side==='sell'?'卖':'?'} ${l.volume||'?'}`).join(' / ');
+  const legText=Object.entries(g.legs).map(([n,l])=>`${n} ${l.side==='buy'?'买':l.side==='sell'?'卖':'?'} ${l.volume||'?'}`).join(' / ');
   const bad=g.fails>0||g.reasons.includes('auto_naked')||g.hosts.length>1;
   const t=x=>x?x.slice(5,16).replace('T',' '):'';
   return `<details class="pair ${g.active?'live':''} ${bad?'warn':''}" data-pair="${g.pair}" ${open?'open':''} ontoggle="touched['${g.pair}']=1">
-   <summary><b>${g.pair}</b><span class="tag ${g.active?'':'done'}">${g.active?'在场':'已结'}</span><span class=muted>${t(g.opened)}${g.closed?' → '+t(g.closed):''}</span><span>${legs}</span>
+   <summary><b>${g.pair}</b><span class="tag ${g.active?'':'done'}">${g.active?'在场':'已结'}</span><span class=muted>${t(g.opened)}${g.closed?' → '+t(g.closed):''}</span><span>${legText}</span>
    ${g.net!==null?`净值 ${money(g.net)}`:''}<span class=muted>${g.reasons.filter(Boolean).join(' / ')}</span>
    ${g.fails?`<span class="tag bad">失败 ${g.fails}</span>`:''}${g.reasons.includes('auto_naked')?'<span class="tag bad">代码补平</span>':''}${g.hosts.length>1?'<span class="tag bad">两腿不同机器</span>':''}
    <span class=muted style="margin-left:auto;font-size:11px">${g.hosts.join(',')} · ${Object.entries(g.legs).map(([n,l])=>`${n} ${l.login||''}`).join(' · ')}</span></summary>
@@ -522,10 +526,15 @@ async function post(url,body){const o=$('out');o.className='';o.textContent='执
  try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null});const j=await r.json();o.className=j.ok?'ok':'bad';o.textContent=(j.ok?'✔ ':'✘ ')+j.text;}
  catch(e){o.className='bad';o.textContent='✘ 页面服务失联: '+e;}
  document.querySelectorAll('button').forEach(b=>b.disabled=false);refresh();}
-function openPair(e){e.preventDefault();const v=+$('volume').value,u=+$('usd').value;if(!(v>0&&u>0)){alert('手数/止损止盈必须大于 0');return false;}
- if(!confirm(`${$('preview').textContent}\n\n确认开仓?`))return false;post('/api/open',{symbol:$('symbol').value,volume:v,usd:u,a_side:dir});return false;}
-function modify(){const u=+$('musd').value;if(!(u>0)){alert('止损止盈必须大于 0');return;}if(confirm('两腿止损/止盈都改成 $'+u+'?'))post('/api/modify',{usd:u});}
-function closeAll(){if(confirm('平掉这一对的两腿?'))post('/api/close/all');}
+// 不用 confirm(): 浏览器一旦勾过"不再显示弹框", confirm 永远返回取消, 按钮就像坏了. 改成点两下: 第一下按钮变字, 5 秒内再点才执行
+const armed={};
+function arm(id,label,fn){const b=$(id);if(armed[id]){clearTimeout(armed[id]);delete armed[id];b.textContent=b.dataset.label;b.classList.remove('arm');fn();return;}
+ b.dataset.label=b.dataset.label||b.textContent;b.textContent='再点一次: '+label;b.classList.add('arm');
+ armed[id]=setTimeout(()=>{delete armed[id];b.textContent=b.dataset.label;b.classList.remove('arm');},5000);}
+function openPair(e){e.preventDefault();const v=+$('volume').value,u=+$('usd').value;if(!(v>0&&u>0)){$('out').className='bad';$('out').textContent='✘ 手数/止损止盈必须大于 0';return false;}
+ arm('openBtn',`开 ${$('symbol').value} ${v} 手 $${u}`,()=>post('/api/open',{symbol:$('symbol').value,volume:v,usd:u,a_side:dir}));return false;}
+function modify(){const u=+$('musd').value;if(!(u>0)){$('out').className='bad';$('out').textContent='✘ 止损止盈必须大于 0';return;}arm('modBtn','两腿改成 $'+u,()=>post('/api/modify',{usd:u}));}
+function closePair(){arm('closeBtn','平掉两腿',()=>post('/api/close/all'));}
 async function precheck(){const b=$('pcBtn'),o=$('pc');b.disabled=true;o.className='';o.textContent='检查中…';
  try{const items=await(await fetch('/api/precheck',{method:'POST'})).json();
   o.innerHTML=items.map(i=>`<div><span class="dot ${i.ok===true?'ok':i.ok===false?'bad':''}"></span><b>${i.name}</b> <span class="${i.ok===false?'dn':'muted'}">${i.text}</span></div>`).join('')
@@ -632,9 +641,9 @@ function legForm(n,l,terms){const opts=terms.map(t=>`<option value="${t}" ${t===
  <label>终端路径<input id=path${n} value="${l.mt5_path||''}" placeholder="C:\\Program Files\\...\\terminal64.exe"></label>
  <label>品种名(该券商)<input id=sym${n} value="${l.symbol||''}" placeholder="XAUUSD 或 XAUUSD.m"></label></div>`;}
 async function load(){const S=await(await fetch('/api/settings')).json();$('setA').innerHTML=legForm('A',S.legs.A||{},S.terminals);$('setB').innerHTML=legForm('B',S.legs.B||{},S.terminals);}
-async function saveSettings(e){e.preventDefault();const legs={};for(const n of ['A','B'])legs[n]={label:$('lab'+n).value,mt5_path:$('path'+n).value.trim(),symbol:$('sym'+n).value.trim()};
+async function saveSettings(e){e.preventDefault();const form={};for(const n of ["A","B"])form[n]={label:$('lab'+n).value,mt5_path:$('path'+n).value.trim(),symbol:$('sym'+n).value.trim()};
  const o=$('out');o.className='';o.textContent='保存中…';
- try{const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({legs})});const j=await r.json();o.className=j.ok?'ok':'bad';o.textContent=(j.ok?'✔ ':'✘ ')+j.text+(j.ok?'\\n\\n回主页看账户卡变绿即可下单。':'');}
+ try{const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({legs:form})});const j=await r.json();o.className=j.ok?'ok':'bad';o.textContent=(j.ok?'✔ ':'✘ ')+j.text+(j.ok?'\\n\\n回主页看账户卡变绿即可下单。':'');}
  catch(e){o.className='bad';o.textContent='✘ '+e;}
  load();return false;}
 load();

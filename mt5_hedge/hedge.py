@@ -283,12 +283,12 @@ def pairs_from_csv() -> dict:
     return {k: v for k, v in pairs.items() if v}
 
 
-def pairs_live(positions: dict | None = None) -> dict:
+def pairs_live(positions: dict | None = None, synth: set | None = None) -> dict:
     """pair_id -> {leg: ticket}, 唯一口径: 终端里现在有的、带本程序 magic 的持仓. 日志不在本机也能配.
     配对线索按可信度: ① 开仓时写进单子的 comment 'hedge-<pid>'(本程序写的结构化标记, 不是人填的)
     ② 本机日志里这张 ticket 的 pair_id ③ 都没有(券商改写了 comment、日志不在本机): A/B 各剩的反向单按开仓时间
     就近配, pair_id = 较早一张的开仓时间(同样的持仓每次算出来都一样, 平仓/日志不乱).
-    positions 省略就现从两腿取(腿不通抛 RuntimeError)."""
+    positions 省略就现从两腿取(腿不通抛 RuntimeError). synth 传个 set 进来, 会装入按 ③ 凑出来的 pair_id(没凭据的对)."""
     if positions is None:
         positions = {leg: call(leg, "GET", "/positions", params={"magic": MAGIC}) for leg in LEGS}
     bylog = {}
@@ -319,6 +319,8 @@ def pairs_live(positions: dict | None = None) -> dict:
             while pid in pairs:
                 pid += "x"
             pairs[pid] = {a: pa["ticket"], b: pb["ticket"]}
+            if synth is not None:
+                synth.add(pid)
     return pairs
 
 
