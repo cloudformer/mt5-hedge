@@ -22,15 +22,31 @@ TARGETS = {"A": PROGRAM_FILES / "MT5-A", "B": PROGRAM_FILES / "MT5-B"}
 SCAN_ROOTS = [PROGRAM_FILES, Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))]
 
 
+def _running() -> list:
+    """正在跑的 terminal64.exe 的完整路径(人开着的终端就是要用的终端, 最可信)."""
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              "(Get-Process terminal64 -ErrorAction SilentlyContinue).Path"],
+                             capture_output=True, text=True, timeout=15).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [Path(line.strip()) for line in out.splitlines() if line.strip().lower().endswith("terminal64.exe")]
+
+
 def _scan() -> list:
-    """机器上已有的 MT5 终端: Program Files*/<任意目录>/terminal64.exe. 自己装的 MT5-A/B 和官方默认目录不算(BASE 只是母本)."""
+    """机器上已有的 MT5 终端, 按可信度排: 正在跑的 → Program Files*/<任意目录>/terminal64.exe.
+    自己装的 MT5-A/B 不算; 官方默认目录 MetaTrader 5 只有在是我们装的母本时(MT5-A 已存在)才不算."""
     found = []
+    for e in _running():
+        if e.exists() and e not in found and e.parent not in TARGETS.values():
+            found.append(e)
+    ours_base = (TARGETS["A"] / "terminal64.exe").exists() or (TARGETS["B"] / "terminal64.exe").exists()
     for root in SCAN_ROOTS:
         if not root.exists():
             continue
         for d in sorted(root.iterdir()):
             exe = d / "terminal64.exe"
-            if exe.exists() and d not in TARGETS.values() and d != BASE:
+            if exe.exists() and exe not in found and d not in TARGETS.values() and not (d == BASE and ours_base):
                 found.append(exe)
     return found
 
