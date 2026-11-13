@@ -31,7 +31,7 @@ mt5-hedge = "mt5_hedge.cli:main"
 packages = ["mt5_hedge"]
 
 [tool.setuptools.package-data]
-mt5_hedge = ["terminal_start.ini"]
+mt5_hedge = ["terminal_start.ini", "sign_key.txt"]
 
 [tool.setuptools.dynamic]
 version = { attr = "mt5_hedge.__version__" }

@@ -10,6 +10,8 @@
 配对关系只认 CSV 里的 ticket(结构化), 不认 comment.
 """
 import csv
+import hashlib
+import hmac
 import json
 import os
 import sys
@@ -18,11 +20,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+from urllib.parse import urlencode
 
-from .paths import WORK as HERE   # 数据都在工作目录
+from .paths import PKG, WORK as HERE   # 代码在包目录, 数据都在工作目录
 DEFAULT_CFG = {   # 唯一默认值; hedge.json 是运行时状态(页面改, 人不用手改), 没有就按这个生成
     "magic": 999998, "symbol": "XAUUSD", "default_volume": 0.10, "default_usd": 500,
-    "app_port": 8000, "app_host": "0.0.0.0",   # 0.0.0.0 = 局域网可访问(页面无登录, 只在自家网用)
+    "app_port": 8000, "app_host": "127.0.0.1",   # 兜底只本机; 真正取值由 installers/install.ps1 统一写进 hedge.json
     "log_url": "",     # 收日志接口(aws/terraform 输出的 log_url); 空 = 只记本地
     "legs": {"A": {"label": "券商1", "mt5_path": "", "port": 8001, "login": 0, "password": "", "server": "",
                    "symbols": {"XAUUSD": "XAUUSD"}, "volume_ratio": 1.0},
@@ -67,6 +70,8 @@ CSV_FIELDS = ["key", "ts_utc", "pair_id", "action", "leg", "side", "symbol", "vo
               "host_name", "host_lan_ip", "host_pub_ip", "app_pid", "app_started", "note"]
 LOG_URL = CFG.get("log_url", "")
 LOG_TABLE = "hedge_log"   # 接口按这个字段选表
+# 请求签名钥匙: 随 PyPI 包带着(mt5_hedge/sign_key.txt), terraform 读同一文件给接口. 用户不配置.
+SIGN_KEY = (PKG / "sign_key.txt").read_text(encoding="utf-8").strip().encode()
 OUTBOX = HERE / "outbox.jsonl"
 
 
@@ -89,20 +94,48 @@ HOST = {   # 本机信息, 每行日志都带(同一次启动所有行相同; �
 
 
 # ---------- 日志: 本地 CSV(缓存) + POST 到 log_url(日志) ----------
+def signed_post(path: str, form: dict, timeout: int = 10) -> requests.Response:
+    """表单 POST 到接口, 头 X-Sign = HMAC-SHA256(钥匙, 请求体). 不签时间: 机器时间不准也不能丢日志."""
+    body = urlencode(form)
+    sig = hmac.new(SIGN_KEY, body.encode(), hashlib.sha256).hexdigest()
+    return requests.post(LOG_URL.rstrip("/") + path, data=body, timeout=timeout,
+                         headers={"content-type": "application/x-www-form-urlencoded", "x-sign": sig})
+
+
 def _post_log(row: dict) -> bool:
-    """表单 POST 一条; 2xx 才算记上. 字段名 = CSV 列名 = 表列名, 对方按 key 覆盖."""
+    """发一条; 2xx 才算记上. 字段名 = CSV 列名 = 表列名, 对方按 key 覆盖."""
     if not LOG_URL:
         return True
     try:   # 日志发送绝不能抛: 这函数跑在下单之后, 抛了就会让另一腿不开
         data = {k: ("" if row.get(k) is None else row.get(k)) for k in CSV_FIELDS}
         data["table"] = LOG_TABLE
-        r = requests.post(LOG_URL, data=data, timeout=10)
+        r = signed_post("/", data)
         if 400 <= r.status_code < 500:   # 格式被拒: 重发也不会通过, 记下原因不进队列
             print(f"!! 日志被接口拒绝({r.status_code}): {r.text[:200]}")
             return True
         return 200 <= r.status_code < 300
     except Exception:
         return False
+
+
+def check_ip(ip: str) -> dict:
+    """pre-check 远程项: 这个公网 IP 跑过没有. 只读幂等. 返回 {ok, text, server_now}."""
+    if not LOG_URL:
+        return {"ok": None, "text": "未配置 log_url, 无法检查", "server_now": None}
+    try:
+        r = signed_post("/check", {"host_pub_ip": ip}, timeout=10)
+    except requests.RequestException as e:
+        return {"ok": None, "text": f"接口不通: {e.__class__.__name__}", "server_now": None}
+    try:
+        j = r.json()
+    except ValueError:
+        j = {}
+    now = j.get("now")
+    if r.status_code == 200:
+        return {"ok": True, "text": "公网 IP 没跑过", "server_now": now}
+    if r.status_code == 409:
+        return {"ok": False, "text": f"公网 IP {ip} 已经跑过", "server_now": now}
+    return {"ok": None, "text": f"接口返回 {r.status_code}: {r.text[:120]}", "server_now": now}
 
 
 _ACCT: dict = {}   # leg -> {broker, login, account, company} 本次进程内缓存(health 拿到一次就够)

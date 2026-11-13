@@ -12,7 +12,7 @@ import threading
 import time
 import webbrowser
 from contextlib import redirect_stdout
-from datetime import datetime
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -339,6 +339,30 @@ def api_settings_save(r: SettingsReq):
     return {"ok": True, "text": "已保存\n" + "\n".join(out)}
 
 
+@app.post("/api/precheck")
+def api_precheck():
+    """pre-check: 三项只检查只显示, 不改状态不拦按钮. 两腿就绪复用 /api/state 的判断; 远程两项走日志接口 /check."""
+    st = state()
+    legs = st["legs"]
+    bad = [f"{l.get('label', n)}: {l.get('reason') or '未连接'}" for n, l in legs.items() if not l.get("ok")]
+    items = [{"name": "两腿就绪", "ok": not bad, "text": "两腿都已连上 MT5、已登录、可交易" if not bad else "; ".join(bad)}]
+    ip = PUBLIC_IP["ip"]
+    if not ip or not ip[0].isdigit():
+        items.append({"name": "本机时间", "ok": None, "text": "无法检查(没取到公网 IP, 没有远程结果)"})
+        items.append({"name": "公网 IP 没跑过", "ok": None, "text": f"无法检查: 公网 IP {ip}"})
+        return items
+    local_now = datetime.now(timezone.utc)
+    r = hedge.check_ip(ip)
+    if r.get("server_now"):
+        drift = abs((datetime.fromisoformat(r["server_now"]) - local_now).total_seconds())
+        items.append({"name": "本机时间", "ok": drift <= 300,
+                      "text": f"与服务器相差 {drift:.0f} 秒" + ("" if drift <= 300 else ", 超过 5 分钟, 请校准 Windows 时间")})
+    else:
+        items.append({"name": "本机时间", "ok": None, "text": "无法检查(接口没返回时间)"})
+    items.append({"name": "公网 IP 没跑过", "ok": r["ok"], "text": f"{ip} · {r['text']}"})
+    return items
+
+
 @app.post("/api/leg/{name}/restart")
 def api_leg_restart(name: str):
     lp = LEGPROCS.get(name)
@@ -404,7 +428,8 @@ svg{width:100%;height:220px;display:block}
 <main>
 <div id=banner class=banner></div>
 <section><h2>健康检查 <span class=muted style="text-transform:none;letter-spacing:0">可以交易才叫健康</span></h2>
-<table id=health><thead><tr><th>券商<th>状态<th>详情</tr></thead><tbody id=healthRows></tbody></table></section>
+<table id=health><thead><tr><th>券商<th>状态<th>详情</tr></thead><tbody id=healthRows></tbody></table>
+<div style="margin-top:10px;display:flex;gap:12px;align-items:flex-start"><button type=button id=pcBtn onclick="precheck()">pre-check</button><div id=pc class=muted>开仓前点一下: 两腿就绪 · 本机时间 · 公网 IP 没跑过(只检查, 不拦)</div></div></section>
 <div id=setSummary class=muted style="font-size:13px;margin-bottom:10px"></div>
 <section><h2>账户</h2><div class=cards id=legs></div></section>
 <div class=two><section><h2>开一对</h2>
@@ -502,6 +527,12 @@ function openPair(e){e.preventDefault();const v=+$('volume').value,u=+$('usd').v
  if(!confirm(`${$('preview').textContent}\n\n确认开仓?`))return false;post('/api/open',{symbol:$('symbol').value,volume:v,usd:u,a_side:dir});return false;}
 function modify(){const u=+$('musd').value;if(!(u>0)){alert('止损止盈必须大于 0');return;}if(confirm('两腿止损/止盈都改成 $'+u+'?'))post('/api/modify',{usd:u});}
 function closeAll(){if(confirm('平掉这一对的两腿?'))post('/api/close/all');}
+async function precheck(){const b=$('pcBtn'),o=$('pc');b.disabled=true;o.className='';o.textContent='检查中…';
+ try{const items=await(await fetch('/api/precheck',{method:'POST'})).json();
+  o.innerHTML=items.map(i=>`<div><span class="dot ${i.ok===true?'ok':i.ok===false?'bad':''}"></span><b>${i.name}</b> <span class="${i.ok===false?'dn':'muted'}">${i.text}</span></div>`).join('')
+   +`<div class=muted style="font-size:12px">${new Date().toLocaleTimeString()}</div>`;}
+ catch(e){o.innerHTML='<span class=dn>pre-check 失败: 页面服务失联</span>';}
+ b.disabled=false;}
 function restartLeg(n){post('/api/leg/'+n+'/restart');}
 const COL={A:'#2563eb',B:'#f59e0b'};
 function drawCharts(cs){const sec=$('chartsec');if(!cs||!cs.length){sec.style.display='none';return;}sec.style.display='';
