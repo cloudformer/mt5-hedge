@@ -7,7 +7,7 @@
 **1. 安装**（管理员 PowerShell，一行，重跑 = 升级）
 
 ```powershell
-irm https://raw.githubusercontent.com/cloudformer/mt5-hedge/main/installers/install.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; iex (irm https://raw.githubusercontent.com/cloudformer/mt5-hedge/main/installers/install.ps1)
 ```
 
 装完桌面有三个图标：`MT5-A`、`MT5-B`、`mt5-hedge`。日志地址、局域网开关都由这个脚本统一写好，机器上不用填任何东西。
