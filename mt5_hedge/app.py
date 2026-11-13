@@ -194,15 +194,14 @@ def state():
             except ValueError:
                 pass
     pairs, seen = [], set()
-    for pid, tks in hedge.pairs_from_csv().items():
+    live_pairs = hedge.pairs_live({n: legs[n]["positions"] for n in legs})   # 口径 = 终端, 不是日志
+    for pid, tks in live_pairs.items():
         row = {"pair": pid, "legs": {}}
         for leg, tk in tks.items():
             seen.add((leg, tk))
-            p = byticket.get(leg, {}).get(tk)
-            row["legs"][leg] = p or {"ticket": tk, "closed": True}
-        alive = [l for l, p in row["legs"].items() if not p.get("closed")]
-        row["pnl"] = round(sum(p["profit"] + p["swap"] for p in row["legs"].values() if not p.get("closed")), 2)
-        row["naked"] = len(alive) == 1
+            row["legs"][leg] = byticket[leg][tk]
+        row["pnl"] = round(sum(p["profit"] + p["swap"] for p in row["legs"].values()), 2)
+        row["naked"] = False
         row["target"] = targets.get(pid)
         # 两腿 SL/TP 美元数不一致(一边更新成功一边失败, 或一腿没挂 SL/TP) → 页面红闪
         vals = [(l, p.get("sl_usd"), p.get("tp_usd")) for l, p in row["legs"].items() if not p.get("closed")]
@@ -263,7 +262,7 @@ def state():
             "settled": {"n": len({r["pair_id"] for r in closes}), "total": round(sum(float(r["total"]) for r in closes), 2)},
             "outbox": hedge.OUTBOX.exists() and sum(1 for _ in hedge.OUTBOX.open(encoding="utf-8")) or 0,
             "log_url": bool(hedge.LOG_URL),
-            "log": hedge.log_pairs(),
+            "log": hedge.log_pairs(set(live_pairs)),
             "all_ok": all(l.get("ok") for l in legs.values()),
             "defaults": {"volume": hedge.CFG.get("default_volume"), "usd": hedge.CFG.get("default_usd"),
                          "symbols": list(first.get("symbols", {}))}}
@@ -490,7 +489,7 @@ async function refresh(){let s;try{s=await(await fetch('/api/state')).json();}ca
   rows+=`<tr class="${(r.naked||r.mismatch)?'naked':''}${i?' sub':''}"><td>${r.pair}<td>${lab}<td>${p.ticket}`+(p.closed?`<td colspan=8 class=muted>已出场(止损/止盈或手动) — 另一腿 3 秒内自动补平`:
   `<td>${p.symbol}<td>${side(p.side)}<td class=num>${p.volume}<td class=num>${p.price_open}<td class=num>${p.price_current??''}<td class=num>${p.sl}<td class=num>${p.tp}<td class=num>${money(p.profit+p.swap)}`)+
   (i?'<td>':`<td class=num rowspan=${ls.length}><b>${money(r.pnl)}</b>`)+'</tr>';});}
- for(const p of s.orphans)rows+=`<tr class=naked><td class=muted>无配对<td>${s.legs[p.leg]?.label||p.leg}<td>${p.ticket}<td>${p.symbol}<td>${side(p.side)}<td class=num>${p.volume}<td class=num>${p.price_open}<td class=num>${p.price_current??''}<td class=num>${p.sl}<td class=num>${p.tp}<td class=num>${money(p.profit+p.swap)}<td class=muted>magic ${s.magic} 但日志无记录</tr>`;
+ for(const p of s.orphans)rows+=`<tr class=naked><td class=muted>无配对<td>${s.legs[p.leg]?.label||p.leg}<td>${p.ticket}<td>${p.symbol}<td>${side(p.side)}<td class=num>${p.volume}<td class=num>${p.price_open}<td class=num>${p.price_current??''}<td class=num>${p.sl}<td class=num>${p.tp}<td class=num>${money(p.profit+p.swap)}<td class=muted>magic ${s.magic} 但另一腿没有反向单</tr>`;
  $('pairs').innerHTML=rows||'<tr><td colspan=12 class=muted style="text-align:center;padding:18px">没有持仓对</td></tr>';
  const cur=s.pairs[0];
  if(cur){const legs=Object.entries(cur.legs).filter(([n,p])=>!p.closed);const best=legs.length?Math.max(...legs.map(([n,p])=>p.profit+p.swap)):0;const tgt=cur.target||0;const pct=tgt?Math.max(0,Math.min(100,best/tgt*100)):0;

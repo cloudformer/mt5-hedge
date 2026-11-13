@@ -7,7 +7,7 @@
     mt5-hedge health                         两腿账户/开关
 
 配置默认值在 DEFAULT_CFG, hedge.json 是页面写的运行时状态. 日志 hedge_YYYY-MM.csv 只增不改, 成功失败都记;
-配对关系只认 CSV 里的 ticket(结构化), 不认 comment.
+配对关系以终端里现在的持仓为准(pairs_live): 页面/平仓/改单都读终端, 日志只是流水和补充线索.
 """
 import csv
 import hashlib
@@ -239,13 +239,15 @@ def rows_all() -> list:
     return out
 
 
-def log_pairs() -> list:
-    """按 pair 分组, 最新在前. 每组: 概要(状态/时间/两腿/净值/原因/机器) + 原始行. 纯读 CSV, 不算不猜."""
+def log_pairs(active=None) -> list:
+    """按 pair 分组, 最新在前. 每组: 概要(状态/时间/两腿/净值/原因/机器) + 原始行. 纯读 CSV, 不算不猜.
+    active = 在场的 pair 集合(调用方从终端取 pairs_live); 不传就按日志算."""
     groups: dict = {}
     for r in rows_all():
         if r.get("pair_id"):
             groups.setdefault(r["pair_id"], []).append(r)
-    active = pairs_from_csv()
+    if active is None:
+        active = pairs_from_csv()
     out = []
     for pid, rows in groups.items():
         opens = [r for r in rows if r["action"] == "open" and r.get("ok") == "1"]
@@ -279,6 +281,45 @@ def pairs_from_csv() -> dict:
                 elif r["action"] == "close":
                     pairs.get(r["pair_id"], {}).pop(r["leg"], None)
     return {k: v for k, v in pairs.items() if v}
+
+
+def pairs_live(positions: dict | None = None) -> dict:
+    """pair_id -> {leg: ticket}, 唯一口径: 终端里现在有的、带本程序 magic 的持仓. 日志不在本机也能配.
+    配对线索按可信度: ① 开仓时写进单子的 comment 'hedge-<pid>'(本程序写的结构化标记, 不是人填的)
+    ② 本机日志里这张 ticket 的 pair_id ③ 都没有(券商改写了 comment、日志不在本机): A/B 各剩的反向单按开仓时间
+    就近配, pair_id = 较早一张的开仓时间(同样的持仓每次算出来都一样, 平仓/日志不乱).
+    positions 省略就现从两腿取(腿不通抛 RuntimeError)."""
+    if positions is None:
+        positions = {leg: call(leg, "GET", "/positions", params={"magic": MAGIC}) for leg in LEGS}
+    bylog = {}
+    for f in sorted(HERE.glob("hedge_*.csv")):
+        with f.open(newline="", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                if r["action"] == "open" and r["ok"] == "1" and r["ticket"]:
+                    bylog[(r["leg"], int(r["ticket"]))] = r["pair_id"]
+    pairs: dict = {}
+    rest = {leg: [] for leg in positions}
+    for leg, ps in positions.items():
+        for q in ps:
+            c = q.get("comment") or ""
+            pid = c[6:] if c.startswith("hedge-") and len(c) > 6 else bylog.get((leg, q["ticket"]))
+            if pid and leg not in pairs.get(pid, {}):
+                pairs.setdefault(pid, {})[leg] = q["ticket"]
+            else:
+                rest[leg].append(q)
+    legs = list(positions)
+    if len(legs) == 2:
+        a, b = legs
+        for pa in sorted(rest[a], key=lambda q: q["time"]):
+            pb = next((q for q in sorted(rest[b], key=lambda q: q["time"]) if q["side"] != pa["side"]), None)
+            if pb is None:
+                continue
+            rest[b].remove(pb)
+            pid = datetime.fromtimestamp(min(pa["time"], pb["time"]), timezone.utc).strftime("%m%d-%H%M%S")
+            while pid in pairs:
+                pid += "x"
+            pairs[pid] = {a: pa["ticket"], b: pb["ticket"]}
+    return pairs
 
 
 # ---------- 设置(页面「设置」卡用) ----------
@@ -392,18 +433,15 @@ def cmd_health():
 
 
 def cmd_status():
-    pairs = pairs_from_csv()
-    live = {leg: {p["ticket"]: p for p in call(leg, "GET", "/positions", params={"magic": MAGIC})}
-            for leg in LEGS}
+    raw = {leg: call(leg, "GET", "/positions", params={"magic": MAGIC}) for leg in LEGS}
+    pairs = pairs_live(raw)
+    live = {leg: {p["ticket"]: p for p in ps} for leg, ps in raw.items()}
     seen = set()
     print(f"{'pair':<16}{'leg':<4}{'ticket':<12}{'symbol':<10}{'side':<5}{'vol':>6}{'open':>11}{'sl':>11}{'tp':>11}{'pnl':>9}")
     for pid, legs in pairs.items():
         for leg, tk in legs.items():
-            p = live[leg].get(tk)
+            p = live[leg][tk]
             seen.add((leg, tk))
-            if p is None:
-                print(f"{pid:<16}{leg:<4}{tk:<12}{'(已平: SL/TP 或手动)':<}")
-                continue
             print(f"{pid:<16}{leg:<4}{tk:<12}{p['symbol']:<10}{p['side']:<5}{p['volume']:>6}"
                   f"{p['price_open']:>11.{3}f}{p['sl']:>11.3f}{p['tp']:>11.3f}{p['profit'] + p['swap']:>9.2f}")
         alive = [l for l, tk in legs.items() if tk in live[l]]
@@ -411,7 +449,7 @@ def cmd_status():
             print(f"{'':<16}!! 单腿裸露: 只剩 {alive[0]} 腿, 另一腿已出场 —— python hedge.py close {pid}")
     orphans = [(l, p) for l in live for t, p in live[l].items() if (l, t) not in seen]
     for l, p in orphans:
-        print(f"{'(无配对)':<16}{l:<4}{p['ticket']:<12}{p['symbol']:<10}{p['side']:<5}{p['volume']:>6}  magic={MAGIC} 但 CSV 没记录")
+        print(f"{'(无配对)':<16}{l:<4}{p['ticket']:<12}{p['symbol']:<10}{p['side']:<5}{p['volume']:>6}  magic={MAGIC} 但另一腿没有反向单")
     net = {}
     for l in live:
         for p in live[l].values():
@@ -420,7 +458,7 @@ def cmd_status():
 
 
 def cmd_open(symbol: str, volume: float, sl_usd: float, tp_usd: float, a_side: str):
-    active = pairs_from_csv()
+    active = pairs_live()
     if active:   # 一次只允许一对
         raise SystemExit(f"已有一对在场({', '.join(active)}), 先平掉再开")
     pid = datetime.now(timezone.utc).strftime("%m%d-%H%M%S")
@@ -479,7 +517,7 @@ def cmd_open(symbol: str, volume: float, sl_usd: float, tp_usd: float, a_side: s
 
 def cmd_modify(usd: float):
     """把在场那一对两腿的止损/止盈都改成 usd 美元(以各自开仓价为基准). 每腿记一条 modify."""
-    pairs = pairs_from_csv()
+    pairs = pairs_live()
     if not pairs:
         raise SystemExit("没有在场的对")
     pid, legs = next(iter(pairs.items()))
@@ -517,7 +555,7 @@ def close_row(pid: str, leg: str, tk: int, c: dict, reason: str, note: str = "")
 
 
 def cmd_close(target: str):
-    pairs = pairs_from_csv()
+    pairs = pairs_live()
     todo = pairs if target == "all" else {target: pairs.get(target)}
     if not todo or any(v is None for v in todo.values()):
         raise SystemExit(f"没有活跃的 pair {target}" if target != "all" else "没有活跃的对")

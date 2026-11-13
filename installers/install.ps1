@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 
 # ---------------- 全网统一的三项(只在这里定义, 下面只引用) ----------------
-$PKG_VERSION = "0.2.4"     # 部署的 PyPI 包版本(锁定). 临时覆盖: $env:MT5_HEDGE_VERSION="0.2.1". 版本号本身来自 mt5_hedge/__init__.py
+$PKG_VERSION = "0.2.5"     # 部署的 PyPI 包版本(锁定). 临时覆盖: $env:MT5_HEDGE_VERSION="0.2.1". 版本号本身来自 mt5_hedge/__init__.py
 $LOG_URL     = ""          # 来源 = terraform output log_url. 空 = 只记本地
 $APP_HOST    = "0.0.0.0"   # 调试期 0.0.0.0 = 局域网可访问; 调试完改 "127.0.0.1" = 只本机
 # 端口 / magic / 品种 / 默认手数 / 默认止损美元数 不在这里: 包内 DEFAULT_CFG 管; legs 由 setup 和页面写, 每台机器自己的.
