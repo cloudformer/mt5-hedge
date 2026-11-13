@@ -104,16 +104,17 @@ def _connect() -> bool:
     if not Path(MT5_PATH).exists():
         _reason = f"终端路径不存在: {MT5_PATH}"
         return False
-    if not _terminal_running():
-        _launch_terminal()
-        if not _terminal_running():
-            return False
     _reason = "正在附着终端…"
     mt5.shutdown()
-    if not mt5.initialize(path=MT5_PATH, timeout=15_000):
-        code, msg = mt5.last_error()
-        _reason = f"附着终端失败({code}): {msg}. 终端还在启动? 路径对吗?"
-        return False
+    if not mt5.initialize(path=MT5_PATH, timeout=15_000):   # 先直接附着: 开着就成功, 一个进程都不拉
+        if not _terminal_running():                           # 附不上且确实没在跑, 才拉起一次
+            _launch_terminal()
+            if not _terminal_running():
+                return False
+        if not mt5.initialize(path=MT5_PATH, timeout=15_000):
+            code, msg = mt5.last_error()
+            _reason = f"附着终端失败({code}): {msg}. 终端还在启动? 路径对吗?"
+            return False
     want = int(lc.get("login") or 0)
     a = mt5.account_info()
     if a is not None and (not want or a.login == want):

@@ -79,22 +79,17 @@ def _copy_target(name: str) -> Path:
 
 def _plan(installer: Path) -> dict:
     """决定两腿各用哪个终端. 返回 {A: {mt5_path, portable}, B: {...}}.
-    优先级: hedge.json 里已配且路径还在的腿 → 扫描到的已有终端(按目录名顺序) → 自己装的拷贝."""
-    from . import hedge
-    legs = {}
-    used = set()
-    for n in TARGETS:                                    # 1. 已配好的腿不动(重跑 = 升级, 不换人家选好的终端)
-        old = hedge.LEGS.get(n, {})
-        if old.get("mt5_path") and Path(old["mt5_path"]).exists():
-            legs[n] = {"mt5_path": old["mt5_path"], "portable": bool(old.get("portable"))}
-            used.add(Path(old["mt5_path"]))
-    found = [e for e in _scan() if e not in used]
+    顺序: 机器上本来就有的终端(人自己装的, 优先) → 以前 setup 装过的 MT5-A/B 拷贝 → 还缺的才装."""
+    found = _scan()
     _say(f"扫描到已有 MT5 {len(found)} 份: " + (", ".join(str(e.parent) for e in found) or "无"))
-    for n in TARGETS:                                    # 2. 已有的终端先用, 不装
-        if n not in legs and found:
-            legs[n] = {"mt5_path": str(found.pop(0)), "portable": False}
+    pool = [(e, False) for e in found] + [(d / "terminal64.exe", True) for d in TARGETS.values() if (d / "terminal64.exe").exists()]
+    legs = {}
+    for n in TARGETS:
+        if pool:
+            e, portable = pool.pop(0)
+            legs[n] = {"mt5_path": str(e), "portable": portable}
     missing = [n for n in TARGETS if n not in legs]
-    if missing:                                          # 3. 还缺的才装
+    if missing:
         _say(f"缺 {len(missing)} 份, 安装: {', '.join(missing)}")
         _download(installer)
         _install_base(installer)
