@@ -10,7 +10,7 @@
 Set-ExecutionPolicy Bypass -Scope Process -Force; iex (irm https://raw.githubusercontent.com/cloudformer/mt5-hedge/main/installers/install.ps1)
 ```
 
-装完桌面有三个图标：`MT5-A`、`MT5-B`、`mt5-hedge`。日志地址、局域网开关都由这个脚本统一写好，机器上不用填任何东西。
+脚本先扫描机器上已有的 MT5（`Program Files` 下券商装的也算）：有两份就不装，有一份再装一份，一份没有就装两份。装完桌面有三个图标：`MT5-A`、`MT5-B`、`mt5-hedge`。日志地址、局域网开关都由这个脚本统一写好，机器上不用填任何东西。
 
 **2. 登录**：双击 `MT5-A`，登录券商 1 的账户，勾「记住密码」，关掉。`MT5-B` 同样登录券商 2。
 
@@ -30,7 +30,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex (irm https://raw.githubuse
 
 | 东西 | 位置 |
 |---|---|
-| 两个 MT5 | `C:\Program Files\MT5-A`、`MT5-B`（便携模式，登录各自保存） |
+| 两个 MT5 | 机器上已有的终端原样用；缺的装到 `C:\Program Files\MT5-A` / `MT5-B`（便携模式，登录各自保存） |
 | 配置 hedge.json、日志 CSV、运行日志 | `%USERPROFILE%\mt5-hedge\` |
 | 代码 | PyPI 包 `mt5-hedge`（https://pypi.org/project/mt5-hedge/） |
 

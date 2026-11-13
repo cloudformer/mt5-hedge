@@ -27,9 +27,10 @@ DEFAULT_CFG = {   # 唯一默认值; hedge.json 是运行时状态(页面改, �
     "magic": 999998, "symbol": "XAUUSD", "default_volume": 0.10, "default_usd": 500,
     "app_port": 8000, "app_host": "127.0.0.1",   # 兜底只本机; 真正取值由 installers/install.ps1 统一写进 hedge.json
     "log_url": "",     # 收日志接口(aws/terraform 输出的 log_url); 空 = 只记本地
-    "legs": {"A": {"label": "券商1", "mt5_path": "", "port": 8001, "login": 0, "password": "", "server": "",
+    # portable: True = setup 自己装的拷贝, 以 /portable 拉起(数据在安装目录); False = 机器上本来就有的终端, 原样拉起
+    "legs": {"A": {"label": "券商1", "mt5_path": "", "portable": False, "port": 8001, "login": 0, "password": "", "server": "",
                    "symbols": {"XAUUSD": "XAUUSD"}, "volume_ratio": 1.0},
-             "B": {"label": "券商2", "mt5_path": "", "port": 8002, "login": 0, "password": "", "server": "",
+             "B": {"label": "券商2", "mt5_path": "", "portable": False, "port": 8002, "login": 0, "password": "", "server": "",
                    "symbols": {"XAUUSD": "XAUUSD"}, "volume_ratio": 1.0}}}
 
 
@@ -320,6 +321,10 @@ def save_settings(legs: dict) -> list:
     cfg = json.loads((HERE / "hedge.json").read_text(encoding="utf-8"))
     for n, v in legs.items():
         lc = cfg["legs"].setdefault(n, {"port": 8001 if n == "A" else 8002})
+        if v["mt5_path"] != lc.get("mt5_path"):   # 换了终端: 便携与否由调用方说(setup), 页面换路径默认按已有安装(原样拉起)
+            lc["portable"] = bool(v.get("portable", False))
+        elif "portable" in v:
+            lc["portable"] = bool(v["portable"])
         lc["mt5_path"] = v["mt5_path"]
         lc["label"] = v.get("label") or lc.get("label") or n
         if "login" in v:               # 页面不再填账号(手动登录); 留给手改 hedge.json 的人

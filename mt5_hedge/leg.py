@@ -79,7 +79,9 @@ def _launch_terminal() -> None:
         return
     _launched_at = time.time()
     try:
-        args = [MT5_PATH, "/portable"]   # 便携模式: 数据跟着安装目录走, 两份终端互不串(setup 装的就是两份拷贝)
+        args = [MT5_PATH]
+        if _cfg().get("portable"):       # setup 自己装的拷贝才用便携模式(数据在安装目录); 机器上本来有的终端原样拉起, 登录信息还在原处
+            args.append("/portable")
         if START_INI.exists():
             args.append(f"/config:{START_INI}")
         subprocess.Popen(args, cwd=str(Path(MT5_PATH).parent))
