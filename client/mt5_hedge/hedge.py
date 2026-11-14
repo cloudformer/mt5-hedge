@@ -71,7 +71,7 @@ CSV_FIELDS = ["key", "ts_utc", "pair_id", "action", "leg", "side", "symbol", "vo
               "host_name", "host_lan_ip", "host_pub_ip", "app_pid", "app_started", "note"]
 LOG_URL = CFG.get("log_url", "")
 LOG_TABLE = "hedge_log"   # 接口按这个字段选表
-# 请求签名钥匙: 随 PyPI 包带着(mt5_hedge/sign_key.txt), terraform 读同一文件给接口. 用户不配置.
+# 请求签名钥匙: 随 PyPI 包带着(mt5_hedge/sign_key.txt), 收日志的 Lambda(mt5_hedge.server.log_ingest)读同一文件. 用户不配置.
 SIGN_KEY = (PKG / "sign_key.txt").read_text(encoding="utf-8").strip().encode()
 OUTBOX = HERE / "outbox.jsonl"
 

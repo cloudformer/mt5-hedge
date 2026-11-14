@@ -4,9 +4,10 @@
     POST /check       has this public IP run?      200 no | 409 yes | 4xx bad request | 5xx database
                       (both carry "now" = server UTC time, the page compares it with the local clock)
 
-Every request carries header X-Sign = HMAC-SHA256(key, raw body) hex. The key ships inside the PyPI
-package (mt5_hedge/sign_key.txt); Terraform injects the same file as SIGN_KEY, plus the previous one
-as SIGN_KEY_PREV during a rotation. No timestamp in the signature: a wrong clock must never lose a log.
+Every request carries header X-Sign = HMAC-SHA256(key, raw body) hex. The key ships inside this PyPI
+package (mt5_hedge/sign_key.txt), read here from the same package the Windows side installs; Terraform
+passes the previous key as SIGN_KEY_PREV during a rotation. No timestamp in the signature: a wrong clock
+must never lose a log.
 
 Columns and types come from hedge_log.sql (packaged next to this file): the SQL is the only list.
 Only parameterised SQL is sent to the database; responses never echo SQL or database errors.
@@ -31,7 +32,9 @@ SERVER_FILLED = {"received_at"}
 
 S3RDS_URL = os.environ["S3RDS_URL"]
 S3RDS_AUTH = base64.b64encode(f"{os.environ['S3RDS_USER']}:{os.environ['S3RDS_PASSWORD']}".encode()).decode()
-KEYS = [k.strip().encode() for k in (os.environ.get("SIGN_KEY", ""), os.environ.get("SIGN_KEY_PREV", "")) if k.strip()]
+with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "sign_key.txt"), encoding="utf-8") as _f:
+    _SIGN_KEY = _f.read()   # mt5_hedge/sign_key.txt: the key the Windows side of this same release signs with
+KEYS = [k.strip().encode() for k in (_SIGN_KEY, os.environ.get("SIGN_KEY_PREV", "")) if k.strip()]
 
 
 def _columns() -> dict:

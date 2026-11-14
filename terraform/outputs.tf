@@ -9,5 +9,5 @@ output "console_url" {
 }
 
 output "db_bucket" {
-  value = module.s3rds.bucket
+  value = module.s3rds.db_bucket
 }

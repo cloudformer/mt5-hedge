@@ -8,7 +8,6 @@ dynamic = ["version"]
 description = "One Windows, two MT5 terminals, one hedged pair: page, watchdog, logging. Zero config."
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
   "MetaTrader5==5.0.*; sys_platform == 'win32'",
@@ -28,10 +27,11 @@ Homepage = "https://github.com/cloudformer/mt5-hedge"
 mt5-hedge = "mt5_hedge.cli:main"
 
 [tool.setuptools]
-packages = ["mt5_hedge"]
+packages = ["mt5_hedge", "mt5_hedge.server"]   # mt5_hedge = the Windows side; mt5_hedge.server = the log endpoint Lambda
 
 [tool.setuptools.package-data]
 mt5_hedge = ["terminal_start.ini", "sign_key.txt"]
+"mt5_hedge.server" = ["hedge_log.sql"]
 
 [tool.setuptools.dynamic]
 version = { attr = "mt5_hedge.__version__" }

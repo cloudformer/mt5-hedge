@@ -1,25 +1,32 @@
 # mt5-hedge infrastructure, one apply:
-#   s3rds       the database: S3 bucket + Lambda + Function URL + web console
-#   schema      the log table, created in the database (idempotent, re-run when the .sql changes)
+#   s3rds       the database: the Registry module cloudformer/infra/aws//modules/s3rds (S3 bucket + Lambda +
+#               Function URL + web console), deploying the s3rds release that module version was tested with
+#   schema      the log table, created in the database (idempotent, re-run when mt5_hedge_version changes)
 #   log-ingest  the public endpoint the Windows machines POST log rows to
+# The log endpoint and the table come from the mt5-hedge release on PyPI (mt5_hedge.server), the same release the
+# Windows machines install: sender, receiver and table change together, in one release.
 module "s3rds" {
-  source = "./s3rds"
+  source  = "cloudformer/infra/aws//modules/s3rds"
+  version = "0.1.3" # deploys s3rds 0.3.5 by default
 
-  project_name       = var.project_name
-  bucket             = var.db_bucket
-  user               = var.db_user
-  password           = var.db_password
-  s3rds_version      = var.s3rds_version
-  console            = var.console
-  force_destroy      = var.force_destroy
-  log_retention_days = var.log_retention_days
+  project_name          = var.project_name # bucket <project_name>-db-<account id>, function <project_name>-db-lambda
+  console_auth_username = var.db_user
+  console_auth_password = var.db_password
+  console               = var.console
+  force_destroy         = var.force_destroy
+  db_ro                 = false # one writer is all this needs: no read-only endpoint
+}
+
+# mt5-hedge==<mt5_hedge_version> from PyPI, the package only: mt5_hedge/server/{log_ingest.py, hedge_log.sql}
+data "external" "mt5_hedge" {
+  program = ["python3", "${path.module}/build.py", "mt5-hedge==${var.mt5_hedge_version}", "${path.module}/.build/mt5_hedge"]
 }
 
 resource "terraform_data" "schema" {
-  triggers_replace = [filesha256("${path.module}/schema/hedge_log.sql"), var.db_name, module.s3rds.db_url]
+  triggers_replace = [var.mt5_hedge_version, var.db_name, module.s3rds.db_url]
 
   provisioner "local-exec" {
-    command = "python3 ${path.module}/schema/apply_schema.py ${module.s3rds.db_url} ${var.db_name} ${path.module}/schema/hedge_log.sql"
+    command = "python3 ${path.module}/schema/apply_schema.py ${module.s3rds.db_url} ${var.db_name} ${data.external.mt5_hedge.result.dir}/mt5_hedge/server/hedge_log.sql"
     environment = {
       DB_USER     = var.db_user
       DB_PASSWORD = var.db_password
@@ -37,8 +44,7 @@ module "log_ingest" {
   s3rds_user         = var.db_user
   s3rds_password     = var.db_password
   log_retention_days = var.log_retention_days
-  schema_sql         = file("${path.module}/schema/hedge_log.sql")
-  sign_key           = file("${path.module}/../mt5_hedge/sign_key.txt") # the key inside the PyPI package: one file, one source
+  code_dir           = data.external.mt5_hedge.result.dir # the handler reads hedge_log.sql and sign_key.txt from the package
   sign_key_prev      = var.sign_key_prev
 
   depends_on = [terraform_data.schema]

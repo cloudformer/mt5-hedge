@@ -32,17 +32,17 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex (irm https://raw.githubuse
 |---|---|
 | 两个 MT5 | 机器上已有的终端原样用；缺的装到 `C:\Program Files\MT5-A` / `MT5-B`（便携模式，登录各自保存） |
 | 配置 hedge.json、日志 CSV、运行日志 | `%USERPROFILE%\mt5-hedge\` |
-| 代码 | PyPI 包 `mt5-hedge`（https://pypi.org/project/mt5-hedge/） |
+| 代码 | PyPI 包 `mt5-hedge`（https://pypi.org/project/mt5-hedge/）：`mt5_hedge` = Windows 端，`mt5_hedge.server` = 收日志的 Lambda |
 
 ## AWS（一次）
 
 ```
 cd terraform
-cp example.tfvars prod.tfvars     # 填 AK/SK、桶名、库密码
+cp example.tfvars prod.tfvars     # 填 AK/SK 或 profile、库密码
 terraform init && terraform apply -var-file=prod.tfvars
 ```
 
-输出 `log_url`，填进 `installers/install.ps1` 顶部的 `LOG_URL`，push 后所有机器装的时候自动带上。建的东西：一个私有 S3 桶、数据库 Lambda（s3rds）、收日志 Lambda，表自动建好。
+输出 `log_url`，填进 `installers/install.ps1` 顶部的 `LOG_URL`，push 后所有机器装的时候自动带上。建的东西：数据库（Terraform Registry 模块 `cloudformer/infra/aws//modules/s3rds`：私有 S3 桶 `<project_name>-db-<账号 ID>` + 数据库 Lambda）、收日志 Lambda（代码 = PyPI 上 `mt5-hedge==<mt5_hedge_version>` 的 `mt5_hedge.server`，和 Windows 端同一个版本），表自动建好。
 
 **全网统一的三个值**只在 `installers/install.ps1` 顶部：包版本（锁定）、`LOG_URL`、`APP_HOST`。改这里 = 改全网，机器重跑那一行安装即生效。
 
@@ -50,7 +50,7 @@ terraform init && terraform apply -var-file=prod.tfvars
 
 ## 日志表 hedge_log
 
-一腿一动作一行，一对走完 4 行：open A、open B、close A、close B（中途改过止损止盈再加 modify 行）。每行自带全部上下文：时间、pair_id、腿、方向、手数、ticket、开仓价、止损止盈、平仓原因（manual / auto_naked / sl / tp）、券商侧 profit / swap / commission / total、平完余额、券商、账号、机器名、IP、进程号。主键 `key` 幂等，重发覆盖。表结构在 `terraform/schema/hedge_log.sql`。
+一腿一动作一行，一对走完 4 行：open A、open B、close A、close B（中途改过止损止盈再加 modify 行）。每行自带全部上下文：时间、pair_id、腿、方向、手数、ticket、开仓价、止损止盈、平仓原因（manual / auto_naked / sl / tp）、券商侧 profit / swap / commission / total、平完余额、券商、账号、机器名、IP、进程号。主键 `key` 幂等，重发覆盖。表结构在 `client/mt5_hedge/server/hedge_log.sql`：发日志（Windows）、收日志（Lambda）、建表（terraform）用的都是这一份。
 
 ## 纪律
 
@@ -59,3 +59,21 @@ terraform init && terraform apply -var-file=prod.tfvars
 - 一对只剩一腿，3 秒内市价补平。
 - 两家合约规格不同，页面红条拦住，同手数不是对冲。
 - 一次只允许一对在场。
+
+## 目录
+
+```
+client/       PyPI 包 mt5-hedge：mt5_hedge/（Windows 端：页面、看门狗、发日志）、mt5_hedge/server/（收日志 Lambda、hedge_log.sql）
+terraform/    AWS：数据库（Registry 模块 s3rds）、建表、收日志 Lambda（从 PyPI 的 mt5-hedge 打包）
+installers/   Windows 安装：install.ps1、mt5setup.exe
+```
+
+## 发版
+
+改日志格式 = 一次改 `client/` 里的发送代码、`server/log_ingest.py`、`server/hedge_log.sql`，然后：
+
+1. `client/mt5_hedge/__init__.py` 改版本号，`installers/install.ps1` 的 `$PKG_VERSION` 改成同一个。
+2. 发 PyPI：`python3 -m build client && python3 -m twine upload client/dist/mt5_hedge-<版本>*`。
+3. AWS：`terraform/variables.tf` 的 `mt5_hedge_version` 默认值改成同一个，`terraform -chdir=terraform apply -var-file=prod.tfvars`（建新列、换收日志 Lambda）。
+4. 提交、push（install.ps1 生效），各 Windows 机器重跑安装 = 升级。
+

@@ -27,7 +27,7 @@ variable "aws_profile" {
 }
 
 variable "env" {
-  description = "Environment label (tags, bucket name)"
+  description = "Environment label (tags)"
   type        = string
 }
 
@@ -36,12 +36,7 @@ variable "project_name" {
   type        = string
 }
 
-# ---- database (s3rds) ----
-variable "db_bucket" {
-  description = "S3 bucket holding the database files (global name, change if taken)"
-  type        = string
-}
-
+# ---- database (s3rds; the bucket is the module's <project_name>-db-<account id>) ----
 variable "db_name" {
   description = "Database name: s3://<bucket>/db/<db_name>.sqlite; the log table lives in it"
   type        = string
@@ -62,11 +57,6 @@ variable "db_password" {
   }
 }
 
-variable "s3rds_version" {
-  description = "pip spec of the database server packaged into the Lambda"
-  type        = string
-}
-
 variable "console" {
   description = "Serve the web console at GET / on the database endpoint"
   type        = bool
@@ -77,15 +67,22 @@ variable "force_destroy" {
   type        = bool
 }
 
-# ---- log ingest ----
+# ---- log ingest + table: from the mt5-hedge release on PyPI ----
+variable "mt5_hedge_version" {
+  description = "mt5-hedge release whose mt5_hedge.server (log endpoint + hedge_log.sql) is deployed; the same release the Windows machines run"
+  type        = string
+  default     = "0.2.9"
+}
+
 variable "log_retention_days" {
-  description = "CloudWatch retention for both Lambdas"
+  description = "CloudWatch retention for the log Lambda (the database Lambda keeps 14 days, set by the module)"
   type        = number
 }
 
 # ---- request signing (blue/green key rotation) ----
-# Current key = mt5_hedge/sign_key.txt (shipped inside the PyPI package, read by terraform directly).
-# Rotation: new sign_key.txt → publish package → put the OLD key here → apply → all machines upgraded → "" → apply.
+# Current key = mt5_hedge/sign_key.txt in the deployed release (the handler reads it from its own package).
+# Rotation: new sign_key.txt → publish package → mt5_hedge_version + the OLD key here → apply → all machines
+# upgraded → "" → apply.
 variable "sign_key_prev" {
   description = "Previous signing key, accepted alongside the current one during a rotation; \"\" = none"
   type        = string

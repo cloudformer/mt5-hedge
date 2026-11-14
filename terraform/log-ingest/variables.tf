@@ -6,10 +6,9 @@ variable "s3rds_password" {
   sensitive = true
 }
 variable "log_retention_days" { type = number }
-variable "schema_sql" { type = string }
-variable "sign_key" {
-  type      = string
-  sensitive = true
+variable "code_dir" {
+  description = "The mt5-hedge package staged by build.py (contains mt5_hedge/server/log_ingest.py)"
+  type        = string
 }
 variable "sign_key_prev" {
   type      = string

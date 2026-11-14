@@ -1,4 +1,4 @@
-# 打 tag(v*) 自动建 GitHub Release 并附 wheel. 发 PyPI 手动: python -m build && twine upload dist/*
+# 打 tag(v*) 自动建 GitHub Release 并附 wheel. 发 PyPI 手动: python -m build client && twine upload client/dist/*
 name: release
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install build && python -m build
+      - run: pip install build && python -m build client
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: client/dist/*

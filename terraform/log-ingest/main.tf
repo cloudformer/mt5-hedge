@@ -3,18 +3,13 @@ locals {
   function_name = "${var.project_name}-log-lambda"
 }
 
-# The zip = this module's code + the table definition (its column list is the validation whitelist).
+# The zip = the mt5-hedge package from PyPI (code_dir): mt5_hedge/server/log_ingest.py with hedge_log.sql (its
+# column list is the validation whitelist) and mt5_hedge/sign_key.txt next to it.
 data "archive_file" "code" {
   type        = "zip"
+  source_dir  = var.code_dir
+  excludes    = ["**/__pycache__/**"]
   output_path = "${path.module}/.build/log_ingest.zip"
-  source {
-    content  = file("${path.module}/log_ingest.py")
-    filename = "log_ingest.py"
-  }
-  source {
-    content  = var.schema_sql
-    filename = "hedge_log.sql"
-  }
 }
 
 resource "aws_cloudwatch_log_group" "ingest" {
@@ -43,7 +38,7 @@ resource "aws_lambda_function" "ingest" {
   function_name    = local.function_name
   role             = aws_iam_role.lambda.arn
   runtime          = "python3.12"
-  handler          = "log_ingest.handler"
+  handler          = "mt5_hedge.server.log_ingest.handler"
   filename         = data.archive_file.code.output_path
   source_code_hash = data.archive_file.code.output_base64sha256
   timeout          = 30
@@ -55,7 +50,6 @@ resource "aws_lambda_function" "ingest" {
       S3RDS_URL      = var.s3rds_query_url
       S3RDS_USER     = var.s3rds_user
       S3RDS_PASSWORD = var.s3rds_password
-      SIGN_KEY       = var.sign_key
       SIGN_KEY_PREV  = var.sign_key_prev
     }
   }
