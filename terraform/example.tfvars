@@ -1,4 +1,4 @@
-# cp example.tfvars prod.tfvars  →  fill in  →  terraform init && terraform apply -var-file=prod.tfvars
+# cp example.tfvars mt5-hedge-dev.tfvars  →  fill in  →  terraform init && terraform apply -var-file=mt5-hedge-dev.tfvars
 region       = "us-east-2"
 aws_profile  = "dev"
 env          = "dev"

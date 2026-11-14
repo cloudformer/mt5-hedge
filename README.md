@@ -38,8 +38,8 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; iex (irm https://raw.githubuse
 
 ```
 cd terraform
-cp example.tfvars prod.tfvars     # 填 AK/SK 或 profile、库密码
-terraform init && terraform apply -var-file=prod.tfvars
+cp example.tfvars mt5-hedge-dev.tfvars     # 填 AK/SK 或 profile、库密码
+terraform init && terraform apply -var-file=mt5-hedge-dev.tfvars
 ```
 
 输出 `log_url`，填进 `installers/install.ps1` 顶部的 `LOG_URL`，push 后所有机器装的时候自动带上。建的东西：数据库（Terraform Registry 模块 `cloudformer/infra/aws//modules/s3rds`：私有 S3 桶 `<project_name>-db-<账号 ID>` + 数据库 Lambda）、收日志 Lambda（代码 = PyPI 上 `mt5-hedge==<mt5_hedge_version>` 的 `mt5_hedge.server`，和 Windows 端同一个版本），表自动建好。
@@ -74,6 +74,6 @@ installers/   Windows 安装：install.ps1、mt5setup.exe
 
 1. `client/mt5_hedge/__init__.py` 改版本号，`installers/install.ps1` 的 `$PKG_VERSION` 改成同一个。
 2. 发 PyPI：`python3 -m build client && python3 -m twine upload client/dist/mt5_hedge-<版本>*`。
-3. AWS：`terraform/variables.tf` 的 `mt5_hedge_version` 默认值改成同一个，`terraform -chdir=terraform apply -var-file=prod.tfvars`（建新列、换收日志 Lambda）。
+3. AWS：`terraform/variables.tf` 的 `mt5_hedge_version` 默认值改成同一个，`terraform -chdir=terraform apply -var-file=mt5-hedge-dev.tfvars`（建新列、换收日志 Lambda）。
 4. 提交、push（install.ps1 生效），各 Windows 机器重跑安装 = 升级。
 
