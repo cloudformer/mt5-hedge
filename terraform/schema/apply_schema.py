@@ -26,8 +26,9 @@ def main():
     if status not in (201, 409):
         sys.exit(f"create database {db}: {status} {body}")
     print(f"database {db}: {'created' if status == 201 else 'exists'}")
-    stmts = [s.strip() for s in open(path, encoding="utf-8").read().split(";") if s.strip() and not all(
-        line.strip().startswith("--") for line in s.strip().splitlines())]
+    # comments off first: a ";" inside a -- comment must not split a statement
+    sql = "\n".join(line.split("--")[0] for line in open(path, encoding="utf-8").read().splitlines())
+    stmts = [s.strip() for s in sql.split(";") if s.strip()]
     status, body = call(f"{base}/api/db/{db}/tx", {"statements": [{"sql": s} for s in stmts]})
     if status != 200:
         sys.exit(f"schema: {status} {body}")
