@@ -71,7 +71,7 @@ variable "force_destroy" {
 variable "mt5_hedge_version" {
   description = "mt5-hedge release whose mt5_hedge.server (log endpoint + hedge_log.sql) is deployed; the same release the Windows machines run"
   type        = string
-  default     = "0.2.9"
+  default     = "0.2.10"
 }
 
 variable "log_retention_days" {

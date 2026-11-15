@@ -1,7 +1,7 @@
 -- mt5-hedge 日志表: 一腿一动作一行, 每行自带全部上下文. terraform apply 自动执行(幂等).
--- 一对走完 = 4 行: open A / open B / close A / close B; modify 可选. 分析只需 WHERE action='close' 按 pair_id 分组.
+-- 一对走完 = 4 行成功: open A / open B / close A / close B; modify 和失败的重试另有行. 分析只需 WHERE action='close' AND ok=1 按 pair_id 分组.
 CREATE TABLE IF NOT EXISTS hedge_log (
-  key           TEXT PRIMARY KEY,   -- 幂等键 pair_id_ticket_action(modify 加时间), 重发覆盖
+  key           TEXT PRIMARY KEY,   -- 主键 pair_id_ticket_action_ts: 每次操作一行; 重发同一行覆盖
   ts_utc        TEXT,               -- 动作时间 ISO8601 UTC
   pair_id       TEXT,               -- 对冲对编号(唯一分组键)
   action        TEXT,               -- open / modify / close

@@ -158,11 +158,8 @@ def acct(leg: str) -> dict:
 
 
 def _log_key(row: dict) -> str:
-    """幂等主键. 没 ticket(下单被拒)或 modify(可多次)时加时间, 保证一行一键."""
-    k = f"{row['pair_id']}_{row.get('ticket') or row['leg']}_{row['action']}"
-    if row["action"] == "modify" or not row.get("ticket"):
-        k += f"_{row['ts_utc']}"
-    return k
+    """主键 pair_id_ticket_action_ts: 每次操作一行(失败重试也各留一行); 重发同一行 key 不变, 覆盖不重复."""
+    return f"{row['pair_id']}_{row.get('ticket') or row['leg']}_{row['action']}_{row['ts_utc']}"
 
 
 def _csv_file() -> Path:

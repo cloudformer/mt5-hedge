@@ -1,7 +1,7 @@
 """Stage mt5-hedge for the log Lambda: a released mt5-hedge from PyPI, the package only (--no-deps: the Lambda uses
 the standard library; fastapi / MetaTrader5 are the Windows side's).
 
-    python3 build.py "mt5-hedge==0.2.9" <out dir>
+    python3 build.py "mt5-hedge==0.2.10" <out dir>
 
 Terraform runs it at plan time (main.tf). Prints {"dir": "<out dir>"} for Terraform's external data source.
 """
