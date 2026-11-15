@@ -7,7 +7,8 @@
 # Windows machines install: sender, receiver and table change together, in one release.
 module "s3rds" {
   source  = "cloudformer/infra/aws//modules/s3rds"
-  version = "0.1.3" # deploys s3rds 0.3.5 by default
+  version = "0.2.1"
+  # s3rds_version = "X.Y.Z" # unset: the s3rds release this module version ships with; set only to deploy another one
 
   project_name          = var.project_name # bucket <project_name>-db-<account id>, function <project_name>-db-lambda
   console_auth_username = var.db_user
@@ -48,4 +49,14 @@ module "log_ingest" {
   sign_key_prev      = var.sign_key_prev
 
   depends_on = [terraform_data.schema]
+}
+
+# The Windows one-line installer (installers/install.ps1) carries this deployment's package version and log URL:
+# written here whenever either changes, then committed and pushed (the installer runs from GitHub).
+resource "terraform_data" "installer" {
+  triggers_replace = [var.mt5_hedge_version, module.log_ingest.url]
+
+  provisioner "local-exec" {
+    command = "python3 ${path.module}/installer/render.py ${path.module}/../installers/install.ps1 ${var.mt5_hedge_version} ${module.log_ingest.url}"
+  }
 }

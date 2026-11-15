@@ -37,15 +37,26 @@ variable "project_name" {
 }
 
 # ---- the web UI's sign-in (each vault also has its own master password) ----
-variable "console_auth_username" {
-  description = "Web UI user (HTTP Basic)"
-  type        = string
+# sign-in: any method that is on lets a request in; at least one must be on (the module checks the fields)
+variable "http_auth" {
+  description = "User + password (HTTP Basic): { enabled, username, password (16+) }"
+  type = object({
+    enabled  = bool
+    username = optional(string, "")
+    password = optional(string, "")
+  })
+  default   = { enabled = false }
+  sensitive = true
 }
 
-variable "console_auth_password" {
-  description = "Web UI password, at least 16 characters (the UI is a public URL)"
-  type        = string
-  sensitive   = true
+variable "cloudflare_auth" {
+  description = "Cloudflare Access in front of the URL: { enabled, team (<team>.cloudflareaccess.com), aud (the Access application's AUD tag) }"
+  type = object({
+    enabled = bool
+    team    = optional(string, "")
+    aud     = optional(string, "")
+  })
+  default = { enabled = false }
 }
 
 variable "force_destroy" {

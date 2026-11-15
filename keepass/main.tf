@@ -26,17 +26,18 @@ provider "aws" {
 
 module "keepass" {
   source  = "cloudformer/infra/aws//modules/s3keepass"
-  version = "0.1.3" # deploys s3keepass 0.1.1 by default
+  version = "0.2.1"
+  # s3keepass_version = "X.Y.Z" # unset: the s3keepass release this module version ships with; set only to deploy another one
 
-  project_name          = var.project_name # bucket <project_name>-vaults-<account id>, function <project_name>-lambda
-  console_auth_username = var.console_auth_username
-  console_auth_password = var.console_auth_password
-  force_destroy         = var.force_destroy
-  custom_template       = var.custom_template
+  project_name    = var.project_name # bucket <project_name>-vaults-<account id>, function <project_name>-lambda
+  http_auth       = var.http_auth
+  cloudflare_auth = var.cloudflare_auth
+  force_destroy   = var.force_destroy
+  custom_template = var.custom_template
 }
 
 output "console_url" {
-  description = "Open in a browser; sign in with console_auth_username / console_auth_password, then each vault's master password"
+  description = "Open in a browser; sign in (http_auth user / password, or Cloudflare Access), then each vault's master password"
   value       = module.keepass.console_url
 }
 

@@ -74,8 +74,8 @@ keepass/      密码库（Registry 模块 s3keepass），自己的 state，和 t
 
 改日志格式 = 一次改 `client/` 里的发送代码、`server/log_ingest.py`、`server/hedge_log.sql`，然后：
 
-1. `client/mt5_hedge/__init__.py` 改版本号，`installers/install.ps1` 的 `$PKG_VERSION` 改成同一个。
+1. `client/mt5_hedge/__init__.py` 改版本号。
 2. 发 PyPI：`python3 -m build client && python3 -m twine upload client/dist/mt5_hedge-<版本>*`。
-3. AWS：`terraform/variables.tf` 的 `mt5_hedge_version` 默认值改成同一个，`terraform -chdir=terraform apply -var-file=mt5-hedge-dev.tfvars`（建新列、换收日志 Lambda）。
+3. AWS：`terraform/variables.tf` 的 `mt5_hedge_version` 默认值改成同一个，`terraform -chdir=terraform apply -var-file=mt5-hedge-dev.tfvars`（建新列、换收日志 Lambda）。apply 同时把版本号和 `log_url` 写进 `installers/install.ps1`（换账号重建后的新地址也是这样进去的）。
 4. 提交、push（install.ps1 生效），各 Windows 机器重跑安装 = 升级。
 
