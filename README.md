@@ -66,6 +66,8 @@ terraform init && terraform apply -var-file=mt5-hedge-dev.tfvars
 client/       PyPI 包 mt5-hedge：mt5_hedge/（Windows 端：页面、看门狗、发日志）、mt5_hedge/server/（收日志 Lambda、hedge_log.sql）
 terraform/    AWS：数据库（Registry 模块 s3rds）、建表、收日志 Lambda（从 PyPI 的 mt5-hedge 打包）
 installers/   Windows 安装：install.ps1、mt5setup.exe
+keepass/      密码库（Registry 模块 s3keepass），自己的 state，和 terraform/ 互不影响：
+              terraform -chdir=keepass init && terraform -chdir=keepass apply -var-file=mt5-hedge-keepass-dev.tfvars
 ```
 
 ## 发版

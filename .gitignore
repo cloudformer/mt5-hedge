@@ -18,3 +18,8 @@ terraform/*.tfvars
 !terraform/example.tfvars
 terraform/**/.build/
 terraform/state/
+# keepass (password vaults, own state)
+keepass/.terraform/
+keepass/*.tfvars
+!keepass/example.tfvars
+keepass/state/
