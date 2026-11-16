@@ -26,13 +26,14 @@ provider "aws" {
 
 module "keepass" {
   source  = "cloudformer/infra/aws//modules/s3keepass"
-  version = "0.2.1"
+  version = "0.2.3"
   # s3keepass_version = "X.Y.Z" # unset: the s3keepass release this module version ships with; set only to deploy another one
 
   project_name    = var.project_name # bucket <project_name>-vaults-<account id>, function <project_name>-lambda
   http_auth       = var.http_auth
   cloudflare_auth = var.cloudflare_auth
   force_destroy   = var.force_destroy
+  s3_backup       = var.s3_backup
   custom_template = var.custom_template
 }
 
@@ -43,4 +44,8 @@ output "console_url" {
 
 output "bucket" {
   value = module.keepass.bucket
+}
+
+output "backup_bucket" {
+  value = module.keepass.backup_bucket
 }

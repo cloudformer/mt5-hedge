@@ -6,6 +6,13 @@ project_name = "mt5-hedge-keepass"
 
 force_destroy = false # the vaults are the whole point: a destroy must not delete them
 
+# snapshots into <bucket>-backup, deleted after keep_days
+s3_backup = {
+  enabled   = false
+  every     = "1d" # <n>h or <n>d
+  keep_days = 30
+}
+
 # sign-in: any method that is on lets a request in; at least one must be on
 http_auth = {
   enabled  = true

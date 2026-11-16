@@ -64,6 +64,16 @@ variable "force_destroy" {
   type        = bool
 }
 
+variable "s3_backup" {
+  description = "Snapshots of the vaults into <bucket>-backup: { enabled, every (<n>h or <n>d), keep_days }; restore one with aws s3 sync s3://<bucket>-backup/<snapshot>/ s3://<bucket>/"
+  type = object({
+    enabled   = bool
+    every     = optional(string, "1d")
+    keep_days = optional(number, 30)
+  })
+  default = { enabled = false }
+}
+
 variable "custom_template" {
   description = "Advanced: new-vault settings over the package's base template, field by field, e.g. { kdf = { unlock_ms = 3000 }, recycle_bin = true }; null = the base"
   type        = any
