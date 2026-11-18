@@ -26,7 +26,7 @@ provider "aws" {
 
 module "keepass" {
   source  = "cloudformer/infra/aws//modules/s3keepass"
-  version = "0.2.4"
+  version = "0.2.5"
   s3keepass_version = "0.1.10" # until the Registry default moves to it
 
   project_name    = var.project_name # bucket <project_name>-vaults-<account id>, function <project_name>-lambda
